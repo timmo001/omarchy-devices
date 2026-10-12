@@ -28,6 +28,11 @@ Item {
   signal threadOpened(var tid)
   // The unread chip was clicked; the panel keeps the choice.
   signal unreadToggled()
+  // A call to the open conversation's number: here through Bluetooth (#59),
+  // else on the device's dialer. The panel says which (`callTip`).
+  property bool canCall: false
+  property string callTip: ""
+  signal callRequested(string number)
 
   // Unsent text per conversation, kept while switching threads. Memory only:
   // it is message text, so it never goes to disk.
@@ -71,6 +76,7 @@ Item {
     sms.start()
     sms.closeThread()
     newMode = true
+    arrived = false
     recipients = []
     toField.text = ""
     refreshSuggestions()
@@ -84,12 +90,16 @@ Item {
   // getting its conversations, the caller waits as the recipient and moves
   // into their conversation if it arrives.
   property string waitingCaller: ""
+  // A new message opened for someone from another page (a contact, a call):
+  // while nothing is typed, Esc goes back there at once, not to the list.
+  property bool arrived: false
   function textTo(number, who, typeHere) {
     if (!sms) return
     sms.start()
     var tid = sms.threadForAddress(number)
     if (tid >= 0) { waitingCaller = ""; openThread(tid, typeHere); return }
     startNew(false)
+    arrived = true
     recipients = [{ title: who || Model.formatNumber(number), number: number }]
     refreshSuggestions()
     waitingCaller = sms.ready ? "" : number
@@ -307,6 +317,7 @@ Item {
   // when nothing is open here, so the panel closes messages.
   function goBack() {
     if (pane === "conversation") { pane = "list"; return true }
+    if (newMode && arrived && toField.text === "" && composer.text === "") { cancelNew(); arrived = false; return false }
     if (newMode && toField.text !== "") { toField.text = ""; return true }
     if (newMode) { cancelNew(); return true }
     if (searchField.text !== "") { searchField.text = ""; return true }
@@ -816,7 +827,7 @@ Item {
             implicitHeight: headerTitle.implicitHeight
             Text {
               id: headerTitle
-              width: parent.width
+              width: parent.width - (headerCall.visible ? headerCall.width + Style.space(8) : 0)
               textFormat: Text.PlainText
               text: view.shownRow ? view.shownRow.title : " "
               color: view.foreground
@@ -826,6 +837,19 @@ Item {
               font.bold: true
               elide: Text.ElideRight
               Behavior on opacity { NumberAnimation { duration: (view.headerLoading ? Model.MOTION.outMs : Model.MOTION.inMs) * view.motion; easing.type: Easing.OutCubic } }
+            }
+            // Call them: one person's conversation only.
+            PanelActionButton {
+              id: headerCall
+              visible: view.canCall && !view.headerLoading && !!view.shownRow && !view.shownRow.group && String(view.shownRow.addresses || "") !== ""
+                && String(view.shownRow.addresses).indexOf(",") < 0
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              iconText: Model.GLYPH.callBack
+              tooltipText: view.callTip
+              foreground: view.foreground
+              fontFamily: view.fontFamily
+              onClicked: if (view.shownRow) view.callRequested(String(view.shownRow.addresses))
             }
             Skeleton {
               visible: view.headerLoading
@@ -1214,7 +1238,8 @@ Item {
                 id: file
                 required property var modelData
                 // A missing preview falls back to the chip instead of an empty box.
-                readonly property bool picture: String(modelData.mime).indexOf("image/") === 0 && modelData.thumb !== "" && preview.status !== Image.Error
+                readonly property bool hasPreview: String(modelData.mime).indexOf("image/") === 0 && modelData.thumb !== ""
+                readonly property bool picture: hasPreview && preview.status !== Image.Error
                 readonly property bool fetching: !!view.sms && view.sms.isFetching(modelData.id)
                 width: picture ? Style.space(140) : fileChip.implicitWidth
                 height: picture ? Style.space(140) : fileChip.implicitHeight
@@ -1223,7 +1248,7 @@ Item {
                   id: preview
                   anchors.fill: parent
                   visible: file.picture
-                  source: file.picture ? "file://" + file.modelData.thumb : ""
+                  source: file.hasPreview ? "file://" + file.modelData.thumb : ""
                   fillMode: Image.PreserveAspectCrop
                   asynchronous: true
                   smooth: true

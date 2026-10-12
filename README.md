@@ -19,8 +19,10 @@ files and the clipboard.
   app's own buttons; a chat shows who said what.
 - **[Messages](docs/use/messages.md)**: every conversation, with pictures;
   reply or start one, all from the keyboard.
-- **[Calls](docs/use/calls.md)**: who is calling, by name; a missed call to
-  call or text back.
+- **[Calls](docs/use/calls.md)**: who is calling, by name; answer and talk
+  here over Bluetooth, hold, swap, call back or text back.
+- **[Contacts](docs/use/contacts.md)**: its address book, every card in
+  full, to message, call or copy from.
 - **[Now playing](docs/use/now-playing.md)**: cover, seek and volume;
   **[shortcuts](docs/use/shortcuts.md)** to ring it, send files, a link or
   the clipboard.
@@ -28,6 +30,8 @@ files and the clipboard.
   its newest photos and videos, and what it sent you, a drag away.
 - **[Several devices](docs/use/devices.md)**: a tab and a pill each, with
   its own news; **[make it yours](docs/use/edit.md)** on the page itself.
+- **[From anywhere](docs/use/anywhere.md)**: away from home, through
+  Tailscale, which Omarchy installs.
 
 | Key | Action |
 |---|---|
@@ -35,7 +39,8 @@ files and the clipboard.
 | `j` `k` · Enter | Move · activate (Shift+Enter: an app popped out) |
 | `a` | All apps |
 | `r` · `x` | Reply to · dismiss a notification |
-| `s` · `E` · Esc | Settings · edit the page · back |
+| `s` · `E` · Esc | Settings · edit the page · back to where you came from |
+| `0` | Home, from two pages deep |
 
 ## Sets itself up
 
@@ -64,6 +69,7 @@ needs Wireless debugging, which you pair and can revoke:
 [Notifications](docs/use/notifications.md) ·
 [Messages](docs/use/messages.md) ·
 [Calls](docs/use/calls.md) ·
+[Contacts](docs/use/contacts.md) ·
 [Now playing](docs/use/now-playing.md) ·
 [Shortcuts](docs/use/shortcuts.md) ·
 [Gallery](docs/use/gallery.md) ·
@@ -71,6 +77,7 @@ needs Wireless debugging, which you pair and can revoke:
 [Screen](docs/use/screen.md) ·
 [Apps](docs/use/apps.md) ·
 [Several devices](docs/use/devices.md) ·
+[From anywhere](docs/use/anywhere.md) ·
 [Make it yours](docs/use/edit.md) ·
 [The keyboard](docs/use/keyboard.md) ·
 [What's new](CHANGELOG.md)
@@ -79,6 +86,9 @@ needs Wireless debugging, which you pair and can revoke:
 [Getting started](docs/setup/getting-started.md) ·
 [Your devices](docs/setup/devices.md) ·
 [Screen and apps](docs/setup/screen-and-apps.md) ·
+[From anywhere](docs/setup/anywhere.md) ·
+[Calls here](docs/setup/calls-here.md) ·
+[Contacts](docs/setup/contacts.md) ·
 [Settings](docs/setup/settings.md) ·
 [Troubleshooting](docs/setup/troubleshooting.md) ·
 [What it cannot do](docs/setup/limits.md) ·
@@ -89,7 +99,16 @@ needs Wireless debugging, which you pair and can revoke:
 [How it works](docs/internals/how-it-works.md) ·
 [Messages and media](docs/internals/messages-and-media.md) ·
 [Development](docs/internals/development.md) ·
+[Releasing](docs/internals/releasing.md) ·
 [Screenshots](docs/internals/screenshots.md)
+
+## Testing the plugin
+
+Changes are tried in a hidden rig: a second shell in its own compositor and a
+small Android emulator for the phone, so your desktop and your phone stay
+untouched. `dev/rig up`, then `dev/rig show` to look at it, `dev/rig down` when
+done. Needs `labwc`, `wtype`, `socat` and an Android SDK with KVM;
+[the rig](docs/internals/development.md#the-test-rig).
 
 ## Built on
 
@@ -97,6 +116,8 @@ needs Wireless debugging, which you pair and can revoke:
   notifications, texts, calls, media, files and clipboard.
 - [scrcpy](https://github.com/Genymobile/scrcpy) and
   [adb](https://developer.android.com/tools/adb): the screen and the apps.
+- [PipeWire](https://pipewire.org)'s Bluetooth hands-free and
+  [BlueZ](https://www.bluez.org): calls with their audio here.
 - [Omarchy](https://omarchy.org) and [Quickshell](https://quickshell.org):
   the bar and the panel.
 - [glycin](https://gitlab.gnome.org/GNOME/glycin), `ffmpegthumbnailer` and

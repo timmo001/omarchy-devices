@@ -3,8 +3,10 @@
 Read this before changing, testing or diagnosing anything here. Two skills carry
 the procedures:
 
-- `.claude/skills/develop-panel/`: how to change it and see the change working.
+- `.claude/skills/develop-panel/`: how to change it and see the change working, in the rig.
 - `.claude/skills/diagnose-panel/`: something looks wrong in the bar or panel, and why.
+
+All development and testing happens in the hidden rig (`dev/rig`, *Workflow*).
 
 ## What this is
 
@@ -20,7 +22,9 @@ The plugin holds no device state of its own. Each feature comes from its
 source: KDE Connect's daemon over D-Bus (through `bin/kdeconnect-bridge`) or
 the MPRIS players it exports (media); the screen and apps from scrcpy over
 adb; the gallery from KDE Connect's storage over sshfs; KDE Connect's
-permissions on the phone from adb. KDE Connect is one source among them, not
+permissions on the phone from adb; calls with their audio here from
+PipeWire's Bluetooth hands-free service (`org.pipewire.Telephony`, with
+BlueZ for what is paired). KDE Connect is one source among them, not
 the centre (`docs/design/setup.md`). The only files the plugin writes outside
 its folder are caches under `~/.cache/sceny.devices/`.
 
@@ -41,8 +45,11 @@ its folder are caches under `~/.cache/sceny.devices/`.
   plugin's handling goes when KDE Connect has its own fix.
 - **Second sources, one feature each, by the owner's decision.** The
   device's screen and apps come from scrcpy over adb (`kdeconnect-bridge
-  screen*`), which KDE Connect does not offer. Each second source serves
-  only its feature; everything else stays KDE Connect.
+  screen*`), which KDE Connect does not offer. Calls come from PipeWire's
+  Bluetooth hands-free service (`kdeconnect-bridge call*`, #59): a call's
+  state, answering, holding, hanging up, placing it and its audio here;
+  KDE Connect still names the caller and reports a missed call. Each second
+  source serves only its feature; everything else stays KDE Connect.
 - **Omarchy only: use what Omarchy provides.** Its commands
   (`omarchy-pkg-add`, `omarchy-launch-or-focus`,
   `omarchy-hyprland-window-pop`, `omarchy-osd`), the packages and services
@@ -59,15 +66,16 @@ its folder are caches under `~/.cache/sceny.devices/`.
 
 | File | Holds |
 |---|---|
-| `bin/kdeconnect-bridge` | `watch` (device snapshots, event-driven), one-shot action verbs, and `sms` (JSON lines on stdin/stdout) |
+| `bin/kdeconnect-bridge` | `watch` (device snapshots, event-driven, with Bluetooth calls), one-shot action verbs, `sms` (JSON lines on stdin/stdout), `call` and `call-audio` (calls through Bluetooth) |
 | `Service.qml` | the watcher, the action runner, MPRIS players, and `SmsService` |
 | `SmsService.qml` | text messages: threads and the open conversation as ListModels, search, what was seen here |
 | `Model.js` | pure functions from data to what is drawn; no QML, checked with `node` |
 | `BarWidget.qml` | the bar pill |
 | `Panel.qml` | the panel: pages, keyboard, settings persistence, the IPC target |
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
-| `SetupChecks.qml` | the steps on a new device, for Add a device (This computer's rows are its checks, from `kdeconnect-bridge doctor`) |
+| `SetupChecks.qml` | the steps on a new device, for Add a device (diagnostics' rows are this computer's checks, from `kdeconnect-bridge doctor`) |
 | `ScreenSetup.qml` | a device's Screen and apps page: where it stands and the steps on it (`Model.screenSetup`, from `kdeconnect-bridge screen`) |
+| `ReachSetup.qml` | a device's From anywhere page: where it stands, how it is connected, the steps (`Model.reachSetup`, from `kdeconnect-bridge features`' `network`) |
 | `AppsView.qml`, `AppTile.qml`, `AppPinRow.qml`, `KeyedApps.qml` | the All apps page, an app's tile, the pinned row, and a row's apps kept as tiles while it changes (the Apps section and the page) |
 | `ScreenTurn.qml` | a docked screen turning or folding: the card that turns or morphs to its new place while the window moves under it |
 | `QrCode.qml` | every QR code the panel shows: the app's store page, adb's pairing |
@@ -86,6 +94,11 @@ Keep them; change one only with the owner.
 - **Never send a text message while testing.** A test reply goes to a real
   person. Check the send path up to the D-Bus argument types, and leave the
   first real send to the owner.
+- **Never place, answer or end a call while testing.** Each reaches a real
+  person. Check the call path up to the D-Bus argument types
+  (`tests/test_calls.py`, the bus replaced) and in demo mode (`demoCall`,
+  `pressCall`); the first real call is the owner's. Pairing over Bluetooth
+  is the owner's act too.
 - **Nothing scripted focuses a text field.** IPC `openThread`, `newMessage`
   and the like never focus the composer: keystrokes meant for another window
   would land in a text, and Enter would send it. Only the user's own click or
@@ -191,7 +204,7 @@ Keep them; change one only with the owner.
   for them. A separator goes between sections, never under the header.
 - **A section shows when its switch is on and it has something:** Now
   playing while a player exists, Notifications while there are any (no
-  empty state).
+  empty state), or something to say about its feature (`sectionNotes`: an ask, or a plain line on a problem).
 - **A device's page is edited in place** (✎, shown only while the pointer
   is on the device's header so the page has no chrome at rest; a
   right-click on the page, KDE's *Enter Edit Mode* idiom; a right-click on
@@ -208,13 +221,36 @@ Keep them; change one only with the owner.
   since the defaults have no page of their own. There is no Devices section: tabs switch devices, the
   pairing card answers requests, and Settings' device list pairs, orders
   and unpairs (Unpair asks twice).
-- **Settings has one shape whatever the number of devices**
-  (`docs/design/setup.md`, section 6): the status first (*Everything
-  works*, or each problem once, its line opening the page that fixes it,
-  with *Fix all* and *Fix with AI*), MY DEVICES (every device, the one in
-  view too, asking to pair, Add a device), *For all devices* (two or more
-  devices only: with one, its layout is the defaults), This computer.
-  Folds go one level deep; anything deeper is a page, with its back arrow.
+- **Setup never shows plumbing** (`docs/design/setup.md`, the owner's
+  decision after a new user installed dependencies by hand): the engine
+  (gateways, items, states) runs unseen, and the panel shows only the
+  thing working, the one act only the user can do when they reach for it,
+  and their preferences. Settings says nothing while everything works:
+  no status, no *Everything works*, no state words, no tools by name
+  (KDE Connect is named once, as the app for the phone).
+- **Settings is the device's page with one device; with several, MY
+  DEVICES then *For all devices*** (`docs/design/setup.md`, section 6):
+  the status leads only while something needs the user (each problem
+  once, its line opening where it is fixed, with *Fix all* and *Fix with
+  AI*); with one device its page carries Add a device. This computer is
+  not on it: its checks are a diagnostics page reached from a problem it
+  causes. Folds go one level deep; anything deeper is a page, with its
+  back arrow (a page on the stack).
+- **Pages form one stack; Back returns to where the user came from**
+  (`Model.navPush`, `navPop`, `navHome`, `navReplace`, `navSettle`; the
+  panel's `nav` above its base, the main page or the first run's card).
+  Opening a page from another pushes it; Esc and the back arrow pop it and
+  put its scroll and row back; a page is never twice in the stack (opening
+  one already below returns to it). The tabs and a scripted open (IPC
+  `openThread`, `openContact`, `messages`, `contacts`, the bar's click)
+  replace or start the stack, so Back goes to the main page. Home (`0`, left of the back arrow, tooltip
+  *Home (0)*) shows from two pages deep, fades at `Model.MOTION`, and goes
+  to the base in one move; Esc never goes Home and never closes the panel
+  except from the base. The stack lives in memory with the place kept for
+  five minutes (`Model.KEEP_PLACE_MS`). A new page opens through the
+  existing page flags; it needs no parent of its own. Pop and Home slide
+  the new page in from the left, a push from the right. Check with IPC
+  `navInfo`, `goBack`, `goHome`.
 - **Each device's settings are its own** (`docs/design/multi-device.md`):
   a device's page (tabs to the others' pages) edits its nickname, icon,
   and with two or more devices its place in the bar, tab, and any group
@@ -225,7 +261,7 @@ Keep them; change one only with the owner.
 - **Features, gateways and setup items are three things**
   (`docs/design/setup.md` section 4, #128): a feature is what the user
   gets; a gateway is how the plugin gets it (KDE Connect, Android's
-  permissions, the storage link, the screen link; Bluetooth planned); a
+  permissions, the storage link, the screen link, the network, Bluetooth); a
   setup item is what a gateway needs, checked once where it lives (this
   computer or the device). Features list the items they need
   (`Model.FEATURES` `needs`) and the ones their switch turns off, only
@@ -240,24 +276,42 @@ Keep them; change one only with the owner.
   devices; else `wake`: KDE Connect on the device let run in the
   background and opened). The away card shows only when no gateway reaches
   it.
-- **One switch gets a feature working.** Turning a feature on runs every
-  step the plugin can, across its gateways, this computer's packages
-  first (one password card for them); it stops only at a step the user
-  must do, waits for it where it can be seen, and then carries on by
-  itself. A step that needs a page of its own (the screen link's pairing)
-  opens that page.
-- **A problem shows once, where its cause is**, and is counted the same
-  everywhere (`Model.settingsProblems`): this computer's failing checks
-  (not optional, not ignored) and connected devices' broken items (they
-  worked and stopped), each once with the features it affects (none
-  turned off), and fixes that did not work. Settings' status lists them;
-  the gear's dot and a line at the top of the main page (folding in)
-  count them. The main page's line closes (✕): the problems it showed then
-  stay out of it (`closedProblems`, written on the close only), a new one
-  brings it back; the dot and the status keep every problem. This computer holds only this computer; a package installed
-  is all it says of the screen or the gallery. *Fix all* runs what its
-  page is about: the status what it lists, This computer its checks, a
-  device's page that device.
+- **Using a feature gets it working.** What a feature needs is asked where
+  it is used, once, never ahead: notification access in Notifications,
+  SMS and contacts on the Messages page, the screen on the first **Open**
+  of a notification's app or the Screen shortcut (it then opens by
+  itself). Its one action (*Allow*, *Fix*, a switch turned on) runs every
+  step the plugin can, across its gateways, this computer's packages first
+  (one password card for them); it stops only at a step the user must
+  do, waits for it where it can be seen, and then carries on by itself. A
+  step that needs a page of its own (the screen link's pairing) opens
+  that page. Nothing advertises a feature: an ask sits only where the user
+  already is.
+- **A problem has one card and a dot on every entry point of its
+  feature** (`Model.settingsProblems`, counted the same everywhere): this
+  computer's failing checks (not optional, not ignored) and connected
+  devices' broken items (they worked and stopped), each once with the
+  features it affects (none turned off), and fixes that did not work. The
+  card (*Fix*, *Details*, *Fix with AI*, *+N more* opening Settings'
+  status) sits in one place, right under the device header above the first
+  section, whichever feature failed (`Model.problemCard`: the viewed
+  device's first, then this computer's); no section carries a card of its
+  own, only a plain line saying what is wrong. Its ✕ folds it away at
+  `Model.MOTION` (`FoldBody`); a closed problem stays closed
+  (`closedProblems`, written on the close only) and a new one brings the
+  card back. The red dot stays where the effect is, closed or not: the
+  gear, the section header beside its title (inside
+  `FoldToggle.headerHeight`), the shortcut tile, the page header
+  (`Model.problemMarks`). Using an affected action (a shortcut, an app, a
+  notification's Open) brings the same card over the panel with *Not now*;
+  Fix runs the plugin's steps and then carries on with the action asked
+  (`Model.problemForEntry`, `guarded`). A feature's entry points are data,
+  `Model.FEATURES` `entries` (`sections`, `shortcuts`, `pages`): a new
+  feature gets its dots and its ask from them, with no branch of its own.
+  An ask (a permission to allow) stays in the feature's section. The
+  diagnostics page holds only this computer; a package installed is all it
+  says of the screen or the gallery. *Fix all* runs what its page is
+  about: the status what it lists, diagnostics this computer's checks.
 - **The gallery and received files are read, never kept beyond the cache**
   (two sections, Gallery and Received, each gone while it has nothing).
   The gallery is read from the device's storage (KDE Connect's sftp, which
@@ -325,6 +379,21 @@ Keep them; change one only with the owner.
   app (the package is in KDE Connect's id, Android's key), never the
   message itself (#122). Opening a real app in a check is the owner's
   go, as the screen is.
+- **Each window chooses where its sound plays** (#129): *Here*
+  (scrcpy's default: the device's whole output, the device quiet), *On
+  the phone* (`--no-audio`) or *Both* (`--audio-source=playback
+  --audio-dup`, Android 13; offered by the owner's decision, easy to take
+  out: `Model.SOUND_PLACES`), on the open window's tile (its badge, `v`;
+  the Screen shortcut's speaker for the screen), on a card over the
+  panel. scrcpy cannot switch while running, so a choice closes the
+  window and opens it again in its place (`screen-sound`: a floating one
+  by a rule at its own rectangle, a tiled one swapped back to its side,
+  measured). An app's choice is its next default (`sound.json`, in the
+  cache beside `opened.json`: usage, never `shell.json`); otherwise the
+  device's `appSound`, with the quiet rule; the screen keeps *Here* until
+  chosen. Its volume here is the window's own PipeWire stream
+  (`screen-volume`, `wpctl`), never this computer's whole output nor the
+  device's volume.
 - **Opening a place closes the panel; opening an item keeps it.** An
   album, a file's folder (*Show in Files*) or KDE Connect's app opens a
   window the user goes on in, so the panel closes; a gallery tile or a
@@ -339,8 +408,8 @@ Keep them; change one only with the owner.
   A device that comes back gets its notifications read again while no
   panel is open (`device-fix renotify`), so one dismissed there while its
   cancel was lost goes.
-- **Fix with AI, on every problem, always** (a feature's row, a failing
-  check, the gallery's error, and the title of *What it can do* for all of
+- **Fix with AI, on every problem, always** (a section's problem, a
+  failing check, the gallery's error, and Settings' status for all of
   them, beside *Fix all*): the person's default coding agent, launched
   exactly as Omarchy launches it (`omarchy agent prompt`, its own mode; no
   default yet: `omarchy agent --pick`), named in the tooltip, with the
@@ -352,18 +421,28 @@ Keep them; change one only with the owner.
   seen when done, else *Check again*.
 - **Look at the render before saying done.** A measurement is not the layout
   fitting. Use `slowMotion 10` to catch a transition mid-way.
-- **After every shell restart, confirm the panel answers over IPC.** A QML
-  error takes the whole widget off the bar, and it can be logged after a
-  quick log check has already passed (an attached handler that does not
-  exist, such as `Keys.onPageUpPressed`, does exactly that).
+- **After every shell restart, confirm the panel answers over IPC, and that
+  it runs the files.** A QML error takes the whole widget off the bar, and it
+  can be logged after a quick log check has already passed (an attached
+  handler that does not exist, such as `Keys.onPageUpPressed`, does exactly
+  that). The shell reads a plugin's QML once: `omarchy-shell shell
+  rescanPlugins`, a `git pull` and `dev/rig sync` change the files and leave
+  the old code answering, and `status` answers either way. Run
+  `dev/loaded-code <plugin folder>` (in a rig: `dev/rig exec -- dev/loaded-code
+  <plugin folder>`); it compares the IPC functions the files declare with the
+  ones the running shell lists. Exit 1 means restart the shell
+  (`omarchy-restart-shell`). It sees functions added or removed, not an
+  edited body.
 
-- **What a device can do is on its page** (`Model.FEATURES`,
-  `featureRows`, from `kdeconnect-bridge features`): a row per feature, its
-  state in one word (On, Set up, Needs attention, Turned off, Not on this
-  device, Away), what is missing, one action that runs every step the
-  plugin can do (`featurePlan`) and stops at the first only the user can
-  do, and a switch where its KDE Connect plugins can be turned off for that
-  device. Screen and apps keeps its own page; its switch is the plugin's
+- **What a device shares with this computer is on its page**
+  (`Model.FEATURES`, `featureRows`, from `kdeconnect-bridge features`): a
+  switch per feature the device can do, a privacy choice (off, KDE
+  Connect's plugins for it are off for that device); no state word, no
+  action, and nothing the device cannot do (a device that is not Android,
+  `Model.isAndroid`, has no screen link). After a switch is turned on, the
+  step left to the user shows under it while it waits. The states (On,
+  Set up, Needs attention…) stay internal. Screen and apps keeps its own
+  page; its switch is the plugin's
   (`screenFeature`, per device like `screenDocked`): off, there is no Apps
   section, no Screen shortcut, no app button on a notification, nothing read
   over adb, its window closes, and nothing about it counts as a problem.
@@ -374,19 +453,25 @@ Keep them; change one only with the owner.
   runs only that plan (`--confirm <hash>`, built again and compared). Only
   packages not installed at any version go to pacman, so nothing installed
   is downgraded. A change on the phone (a permission) is a click's too.
-- **This computer and Add a device are two Settings pages:** one checks what
-  exists, the other makes a new pairing (then goes on to the new device's
-  page, what it can do). This computer (`settingsScope` `connection`):
-  this computer's checks, *Fix all* (status icon, name, short status,
-  one action; *Ignore* stops a check lighting the gear's dot, kept in
-  `ignoredChecks`); the panel opens on it while KDE Connect is down. Add a
-  device (`addDevice`): requests to pair, the steps on the device, devices
-  in reach (it searches while open); the panel opens on it while nothing
-  is paired. An away device's page offers
-  *Reconnect* in place (a search, `fix search`; it never leaves the
-  page), and opening the panel on it searches once a minute at most.
-  Last seen comes from the bridge's cache (`last-seen.json`); causes are
-  worded as likely, and Samsung advice shows for Samsung devices only.
+- **The first run is one card** (`settingsScope` `ready`): while KDE
+  Connect is missing or stopped the panel opens on *Getting this computer
+  ready*, whose Continue installs everything any feature needs here in
+  one password (`fix ready`: the packages not installed and the firewall's
+  rule, after the card), starts KDE Connect, and goes on to Add a device.
+  No package is asked for again.
+- **Diagnostics and Add a device are pages, not places to visit:**
+  diagnostics (`connection`) checks this computer (status icon, name,
+  short status, one action, *Fix all*; *Ignore* stops a check lighting
+  the gear's dot, kept in `ignoredChecks`) and is reached from a problem
+  it causes. Add a device (`addDevice`): requests to pair, the steps on
+  the device, devices in reach (it searches while open); the panel opens
+  on it while nothing is paired, and a pairing made there lands on the
+  device's main page. An away device's page says when it was last seen
+  and offers *Reconnect* in place (a search, `fix search`; it never
+  leaves the page); *Why?* shows where it was and the likely causes.
+  Opening the panel on it searches once a minute at most. Last seen
+  comes from the bridge's cache (`last-seen.json`); causes are worded as
+  likely, and Samsung advice shows for Samsung devices only.
 - **Pairing comes forward, never over the keyboard.** A device asking to
   pair brings `PairingPopup` under the bar (a layer surface with no
   keyboard focus, input only on its card) and glows the first chip;
@@ -396,17 +481,32 @@ Keep them; change one only with the owner.
   `Model.PAIR_TIMEOUT_S`). The key is drawn by `PairingKey` everywhere,
   as KDE Connect shows it (one word). Pairing actions show their result
   in place (`Model.shownInPlace`): no toast unless they fail.
-- **Fixes change the system only on a click.** `fix install`, `fix firewall`,
-  `fix sshfs` and `fix screen` go through `pkexec` (one password prompt;
+- **Fixes change the system only on a click.** `fix ready`, `fix install`,
+  `fix firewall`, `fix sshfs` and `fix screen` go through `pkexec` (one password prompt;
   packages through Omarchy's `omarchy-pkg-add`, with Omarchy's bin on the
-  `PATH` pkexec clears); the
-  firewall rule is limited to the local network the default route is on,
-  never opened to everyone.
+  `PATH` pkexec clears); the firewall rules open KDE Connect's ports to the
+  private ranges (as Omarchy opens Sunshine's) and on a mesh's interface
+  (`tailscale0`, `nordlynx`), never to everyone. `fix tailscale` opens
+  Omarchy's own installer in its terminal (as its Install menu does),
+  after the same card.
+- **Away from home goes through a mesh, Tailscale first** (#119, the
+  Network gateway): NordVPN Meshnet is used the same way when it is on.
+  The device's mesh address goes into KDE Connect's custom devices (its
+  daemon's `customDevices` over D-Bus, never its config file), with an
+  address the user typed (#8); only the addresses this plugin gave are
+  replaced or taken back. The device is matched among the mesh's peers by
+  an address it is reached at, then the one picked or matched before
+  (`network.json` in the cache), then the same name; else the user picks
+  it. From anywhere is asked where it is used: the away card's button
+  opens its page. It has no row among what the device shares; Fix all
+  leaves it to the user unless it broke, and a broken one is a problem
+  that opens its page.
 - **A feature that needs more than KDE Connect ships its own setup.** A
   package, a setting on the device or a pairing is a step the panel walks
-  the user through: a check (This computer's row from `doctor`; optional
-  when only that feature needs it, so missing it is never a problem), a fix on
-  a click, and the steps on the device, each ticked when it is done. Never
+  the user through: a check (a diagnostics row from `doctor`; optional
+  when only that feature needs it, so missing it is never a problem), its
+  package in `fix ready`, a fix on a click, and the steps on the device,
+  asked where the feature is used and each ticked when it is done. Never
   a manual install in the docs instead. Test the setup on a machine
   without the dependency before installing it, and install it through the
   new fix.
@@ -472,6 +572,19 @@ Keep them; change one only with the owner.
   (`hyprctl binds`: Omarchy's pop-out and full screen, found by their
   description or command; `bound_keys`), never assumed. An action with no
   key here says *no shortcut*, on the page and in the tips alike.
+- **Calls here: the audio stays on the device until the user brings it**
+  (#59). Between calls the plugin sets PipeWire's `RejectSCO` on the
+  device's gateway, so a call answered on the device is not taken over by
+  this computer; *Answer here*, a call placed here and *Audio here* bring
+  it. Once here, it goes back from the device's own audio button: hands-free
+  has no way to send it back (`docs/setup/limits.md`). Its voice plays
+  through two loopbacks the service runs while the audio is here
+  (`kdeconnect-bridge call-audio`, Communication streams following the
+  default output and input); the microphone mutes on the device's node.
+  The device's Bluetooth match is confirmed by the user's click (the phone
+  paired under its name, `Model.bluetoothCandidate`) and kept in the cache
+  (`bluetooth.json`), as the adb serial is; pairing is Omarchy's Bluetooth
+  menu's, which the step opens, and the row carries on once it is paired.
 - **Setting up the screen adds the Screen shortcut, once.** When a
   device's screen first reads ready with a panel open, Screen joins its
   shortcuts (the flat keys with one device, its profile with several) and
@@ -488,17 +601,26 @@ Keep them; change one only with the owner.
   unreviewed code to anyone who installs or updates, and shows the listing
   as *Update unverified*. `develop` is where work lands. Keep `main` the
   GitHub default branch.
+- **Develop and test in the rig, never on the owner's desktop or phone.**
+  `dev/rig up` starts a hidden second shell with the working tree installed
+  as the plugin and a small Android emulator paired to a private KDE Connect
+  daemon; `dev/rig sync`, `ipc`, `phone`, `screenshot`, `check` and `down`
+  do everything the checks in the skills need (`docs/internals/development.md`).
+  The owner's shell, Hyprland, `~/.config`, KDE Connect daemon, adb server
+  and phone are never driven, restarted or written to by an agent; the owner
+  is asked only to look at a finished result (`dev/rig show`). A rig is
+  always taken down (`dev/rig down`, then `dev/rig verify-clean`), and
+  nothing is ever killed by process name.
 - **Every change goes into `develop` through a pull request:** a
   short-lived branch from `develop`, `gh pr create --base develop`, CI
-  green, the change checked in a running shell (check the branch out in the
-  installed clone), squash-merge, delete the branch. `Closes #n` in a pull
+  green, the change checked in the rig, squash-merge, delete the branch. `Closes #n` in a pull
   request into `develop` closes nothing (GitHub acts on it only for the
   default branch): close the issue by hand after the merge, with a comment
   naming the pull request.
-- **Without a running Omarchy shell** (a cloud session, a machine without
-  Omarchy), do the rest (code, tests, CI, the pull request), say in the pull
-  request that the change is not checked in a running shell, and leave the
-  merge until someone checks it there.
+- **Without the rig** (a cloud session, a machine without Omarchy, `labwc`
+  or an Android SDK), do the rest (code, tests, CI, the pull request), say in
+  the pull request that the change is not checked in a running shell, and
+  leave the merge until someone checks it there.
 - **Check the freeze before merging anything into `main`**, and whenever
   you look at the open issues. It takes two steps:
   each open `marketplace-review` issue here points to a marketplace issue,
@@ -519,13 +641,21 @@ Keep them; change one only with the owner.
     on our issue, and close it.
   - No output: nothing is under review.
 - **Keep the repository apart from the installed copy.** Work in your own
-  clone, outside the shell's plugin folder. The plugin folder holds an
-  installed copy following `develop`; update it with `git pull`
+  clone, outside the shell's plugin folder. The plugin folder holds the
+  owner's installed copy following `develop`. A user timer
+  (`sceny-plugins-follow-develop`, every 5 minutes; script
+  `dev/follow-develop` in sceny/omarchy-paperclipai) fast-forwards it after
+  each merge into `develop` and restarts the shell (a rescan does not reload
+  a loaded plugin; the restart waits while the session is locked), so nobody
+  pulls by hand
   (`omarchy plugin update` reads `main` and does not bring `develop`
-  changes). To check a branch live, push it, `git switch` to it in the
-  installed copy, and switch back to `develop` afterwards.
+  changes). It skips a checkout that is dirty or off `develop`, so never leave
+  the installed copy on a feature branch. The rig installs your working tree into its own
+  throwaway plugin folder (`dev/rig sync`), so a branch is checked without
+  touching the installed copy.
 - **An urgent fix for users** is a branch from `main` with a pull request
-  into `main`, only while `main` is not frozen (*Releasing*, step 5);
+  into `main`, only while `main` is not frozen (*Releasing*, step 5) and
+  only after the owner's go (*Releasing*, step 1d);
   afterwards merge `main` into `develop`.
 - **Instruction docs state what to do.** AGENTS.md, CLAUDE.md, the skills
   and `docs/internals/` give steps, conditions and rules in the
@@ -548,10 +678,28 @@ Keep them; change one only with the owner.
 
 ## Releasing
 
-When the owner says to release, run every step below to the end without
-stopping to ask: the owner approved the whole process, the marketplace
-request included. Stop only when a check fails or the freeze check finds
-`main` frozen, and report that.
+Releasing a version to Omarchy is always the owner's call. The steps below
+run in order; the detail, the checklist and the record templates are in
+`docs/internals/releasing.md`. Stop at a failed check, at a frozen `main`
+(step 0) and at the owner's go (step 1d), and report.
+
+- **Every pull request gets the regular review with a security check**
+  (Panel QA, one reviewer): private text (messages, contact names,
+  numbers, clipboard) stays off argv and out of logs; nothing from a
+  device is decoded outside the sandbox; root goes only through `pkexec`
+  with `--describe`/`--confirm`; the firewall stays on private ranges and
+  the mesh; no new listener and no command built from device data; no
+  personal data. A finding blocks the pull request.
+- **A release closes with** a full regression on the emulator in the rig
+  (a regression record; what the emulator cannot judge goes on a *needs a
+  real device* list for the owner), a cold install and an upgrade from the
+  live tag, and the security specialist's review: the whole plugin against
+  its threat model plus `last-tag..candidate`, every release. A FAIL rejects
+  the candidate (`docs/internals/releasing.md`).
+- **Questions from outside are answered the same day:** the maintainer's
+  comments on a marketplace issue, and any open upstream report, are
+  answered or routed to their owner on the day they arrive (Omar's daily
+  check).
 
 0. **Check the freeze** (*Workflow*). A marketplace issue still open means
    `main` is frozen: say so and release nothing.
@@ -564,6 +712,35 @@ request included. Stop only when a check fails or the freeze check finds
    linked, with its title), and *Upgrading* when a setting or a default
    changes. Set `"version": "X.Y.Z"` in `manifest.json`. Pull request into
    `develop`, CI green, squash-merge.
+   The candidate is the head of `develop` once that pull request is merged.
+   The security review task opens with the regression, when the release
+   branch is prepared.
+   Steps 1a to 1c run on it before anything touches `main`.
+
+1a. **Regression and install checks** (`docs/internals/releasing.md`): the
+   full regression on the emulator in the rig, a cold install and an
+   upgrade from the live tag. Every failure is fixed on `develop` and the
+   checks run again on the new head.
+1b. **Security review** by the security specialist, after the regression has
+   passed: the whole plugin against its threat model, every release, plus
+   `last-tag..candidate`. A FAIL rejects the candidate: it is fixed and
+   re-reviewed on the new head, or the release does not happen; only the
+   owner can waive it.
+1c. **Bring the owner** the regression record, the security verdict and the
+   *needs a real device* list, in one request, once, with every item,
+   only after every agent check (review, full regression, cold install,
+   upgrade, security review) passed on **one exact candidate SHA**. The
+   request names that SHA. A new commit on the candidate voids every check
+   and any open request: they run again on the new head before anyone
+   asks. Before the request the owner's machine runs that SHA (folder at
+   the SHA, shell restarted, `dev/loaded-code` exits 0), put there by
+   Plugin DevOps; afterwards it goes back to `develop` the same way. The
+   owner is not asked to install, paste or run anything (`docs/internals/releasing.md`, *The owner's request*).
+1d. **The owner's go, for this release.** Nothing touches `main` (a merge,
+   a tag, a release) and nothing is filed on or edited in the Omarchy
+   marketplace before the owner has said go for this release, after 1c. A
+   go for one release is not a go for the next; an urgent fix for users
+   needs its own.
 2. **Merge `develop` into `main`** through a pull request titled
    *Release X.Y.Z* (`gh pr create --base main --head develop`), CI green,
    merged with a merge commit, never squashed, so both branches keep one
@@ -583,8 +760,8 @@ request included. Stop only when a check fails or the freeze check finds
    ```
 
 4. **Request the marketplace review** (`omacom/omarchy-plugin-marketplace`)
-   as soon as the release is published, with the text below as it stands:
-   the owner approved it for every release. It is filed from a session,
+   once the release is published and the owner has said go for the request
+   (1d), with the text below as it stands. It is filed from a session,
    not from CI (CI cannot open issues in another repository). The
    *Standard installation* box stays unticked: Devices needs KDE Connect
    set up separately, which is why the marketplace lists it `manual-setup`.
@@ -652,8 +829,11 @@ request included. Stop only when a check fails or the freeze check finds
 
 ## Never
 
-- Send a text, ring a device, or change the device's volume or playback in a
-  test without the owner's go.
+- Test against the owner's running shell, Hyprland, KDE Connect daemon, adb
+  server or phone: use the rig (`dev/rig`, *Workflow*).
+- Send a text, place, answer or end a call, ring a device, pair it over
+  Bluetooth, or change the device's volume or playback in a test without
+  the owner's go.
 - Leave a test's side effect behind: opening an unread thread marks it seen in
   `~/.cache/sceny.devices/sms-seen-<device>.json`; undo it.
 - Commit anything read from a real device.

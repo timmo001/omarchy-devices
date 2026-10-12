@@ -43,6 +43,7 @@ Item {
     demo = true
     snapshot = Model.demoSnapshot(liveSnapshot || snapshot, kind || "")
     smsService.showDemo()
+    contactsService.showDemo()
   }
 
   // A demo the user started from the panel, before any device is set up
@@ -57,8 +58,11 @@ Item {
     demo = false
     snapshot = liveSnapshot
     smsService.showLive()
+    contactsService.showLive()
     searchedAt = 0
     demoChecks = false
+    demoNetworkKind = ""
+    demoFeature = ""
     runDoctor()
   }
   // ---- Many devices (docs/design/multi-device.md) ----
@@ -100,16 +104,18 @@ Item {
     var out = {}
     for (var i = 0; i < ordered.length; i++) {
       var d = ordered[i]
-      if (!Model.resolveProfile(profiles, d, i === 0).showCalls) continue
-      var c = Model.callState(d, clock, callClosed[d.id] || 0)
+      var p = Model.resolveProfile(profiles, d, i === 0)
+      if (!p.showCalls) continue
+      var c = Model.callState(d, clock, callClosed[d.id] || 0, p.callsHere !== false)
       if (c) out[d.id] = c
     }
     return out
   }
-  // The call the card shows: a ringing one first, else the latest missed.
+  // The call the card shows: a ringing one first, then one going on, one
+  // that just ended, else the latest missed.
   readonly property var call: Model.shownCall(calls, ordered.map(function(d) { return String(d.id) }))
   // A new call event from any device re-reads the clock.
-  readonly property string callEvents: JSON.stringify(ordered.map(function(d) { return d.call || null }))
+  readonly property string callEvents: JSON.stringify(ordered.map(function(d) { return [d.call || null, d.handsfree ? d.handsfree.calls : null, d.handsfree ? d.handsfree.ended : null] }))
   onCallEventsChanged: clock = Date.now()
 
   function closeCall() {
@@ -149,6 +155,147 @@ Item {
     onTriggered: root.clock = Date.now()
   }
 
+  // ---- Calls through Bluetooth (#59): PipeWire's hands-free service ----
+  // A device can answer and call here while it is connected for calls and
+  // its Calls here is on (its profile).
+  function callsHereOn(id) {
+    for (var i = 0; i < ordered.length; i++)
+      if (String(ordered[i].id) === String(id)) return Model.resolveProfile(profiles, ordered[i], i === 0).callsHere !== false
+    return false
+  }
+  function callsReady(id) {
+    var d = findDevice(id)
+    return !!d && !!d.handsfree && d.handsfree.connected === true && callsHereOn(id)
+  }
+  // The microphone off for the call, per device; back on once its calls end.
+  property var callMuted: ({})
+  function isCallMuted(id) { return callMuted[String(id)] === true }
+  // A click on the call card (Model.callActions' keys). Each reaches a real
+  // call, so demo mode moves its own made-up calls instead.
+  function callAction(key, c, arg) {
+    if (!c || !c.device) return
+    var id = String(c.device)
+    var verbs = { answer: ["answer"], answerPhone: ["answer-phone"], decline: ["decline", c.id], hangup: ["hangup", c.id],
+                  holdAnswer: ["answer", c.other ? c.other.id : ""], endAnswer: ["end-answer"],
+                  declineOther: ["decline", c.other ? c.other.id : ""], swap: ["swap"], merge: ["merge"],
+                  audioHere: ["audio-here"], tones: ["tones"], volume: ["volume", String(arg)],
+                  mute: ["mute", isCallMuted(id) ? "off" : "on"] }
+    // A conference ends whole.
+    if (key === "hangup" && c.conference) key = "hangupAll"
+    verbs.hangupAll = ["hangup-all"]
+    var v = verbs[key]
+    if (!v) return
+    if (key === "mute") { var m = Object.assign({}, callMuted); m[id] = !isCallMuted(id); callMuted = m }
+    if (demo) { demoCallClick(id, key); return }
+    // The keypad's digits go over stdin, never in the arguments.
+    var proc = actionComponent.createObject(root, { key: "call:" + key, quietSuccess: true,
+      hasInput: key === "tones", input: key === "tones" ? String(arg || "") : "",
+      command: [bridge, "call", v[0], id].concat(v.length > 1 && v[1] ? [v[1]] : []) })
+    proc.running = true
+  }
+  function demoCallClick(id, key) {
+    var copy = JSON.parse(JSON.stringify(snapshot || {}))
+    ;(copy.devices || []).forEach(function(d) {
+      if (String(d.id) !== id || !d.handsfree) return
+      d.handsfree = Model.demoCallAfter(d.handsfree, key, Date.now())
+      if (key === "answer" || key === "answerPhone" || key === "decline") delete d.call
+    })
+    snapshot = copy
+  }
+  // A call placed here (a missed call, a conversation): through Bluetooth
+  // when the device is connected for calls, its audio here; else on the
+  // device's own dialer.
+  function placeCall(id, number) {
+    var n = String(number || "").trim()
+    if (!id || n === "") return
+    if (!callsReady(id)) { callBack({ device: String(id), number: n }); return }
+    if (demo) { demoCallClick(String(id), "dial"); return }
+    var proc = actionComponent.createObject(root, { key: "call:dial", quietSuccess: true,
+      hasInput: true, input: n, command: [bridge, "call", "dial", String(id)] })
+    proc.running = true
+  }
+  // Between calls the audio stays on the device: a call answered there is
+  // not taken over by this computer (Answer here and calls placed here bring
+  // it). Set again whenever a device's calls are over.
+  readonly property var callsToKeep: {
+    var out = []
+    for (var i = 0; i < ordered.length; i++) {
+      var hf = ordered[i].handsfree
+      if (hf && hf.connected && hf.keepOnPhone === false && (hf.calls || []).length === 0 && callsHereOn(ordered[i].id)) out.push(String(ordered[i].id))
+    }
+    return out
+  }
+  onCallsToKeepChanged: if (!demo) callsToKeep.forEach(function(id) { Quickshell.execDetached([root.bridge, "call", "keep-on-phone", id]) })
+  // The device whose call's audio is here now: its voice to this computer's
+  // output, the microphone to it (kdeconnect-bridge call-audio).
+  readonly property string callAudioDevice: {
+    if (demo) return ""
+    for (var id in calls) if (calls[id].here && calls[id].audio === "here" && calls[id].state !== "ended") return id
+    return ""
+  }
+  onCallAudioDeviceChanged: {
+    if (callAudioProc.running) callAudioProc.running = false
+    if (callAudioDevice !== "") callAudioStart.restart()
+  }
+  // Its microphone back on once the call is over.
+  onCallsChanged: {
+    var m = Object.assign({}, callMuted), changed = false
+    for (var id in m) if (!calls[id] || calls[id].state === "ended" || calls[id].state === "missed") { delete m[id]; changed = true }
+    if (changed) callMuted = m
+    pauseForCalls()
+  }
+  Timer {
+    id: callAudioStart
+    interval: 300
+    onTriggered: if (root.callAudioDevice !== "" && !callAudioProc.running) {
+      callAudioProc.command = [root.bridge, "call-audio", root.callAudioDevice]
+      callAudioProc.running = true
+    }
+  }
+  Process {
+    id: callAudioProc
+    // Ended while the audio is still here (the device's nodes came late):
+    // once more, a moment later.
+    onExited: if (root.callAudioDevice !== "") callAudioStart.restart()
+  }
+  // This computer's own players pause while a call is up here, and play
+  // again after it, unless KDE Connect's own Pause media does it for the
+  // device. The device's players are its own to pause.
+  property var pausedForCall: []
+  function pauseForCalls() {
+    var up = false
+    for (var id in calls) {
+      var c = calls[id]
+      var d = findDevice(id)
+      if (c.here && (c.state === "active" || c.state === "dialing" || c.state === "held") && !(d && d.can && d.can.pausemusic)) up = true
+    }
+    var all = Mpris.players ? Mpris.players.values : []
+    if (up && pausedForCall.length === 0) {
+      var paused = []
+      all.forEach(function(p) {
+        if (!p || !p.isPlaying || !p.canPause || String(p.dbusName).indexOf("kdeconnect") >= 0) return
+        p.pause()
+        paused.push(String(p.dbusName))
+      })
+      if (paused.length > 0) pausedForCall = paused
+    } else if (!up && pausedForCall.length > 0) {
+      var was = pausedForCall
+      pausedForCall = []
+      all.forEach(function(p) { if (p && was.indexOf(String(p.dbusName)) >= 0 && p.canPlay) p.play() })
+    }
+  }
+
+  // Omarchy's own places a step sends the user to: its Bluetooth menu (to
+  // pair a device for calls), as its key opens it. The panel closes, since
+  // the menu takes the keyboard.
+  signal placeOpened()
+  function openPlace(place) {
+    if (place !== "bluetooth") return
+    if (demo) { report("Demo: Omarchy's Bluetooth would open", false); return }
+    Quickshell.execDetached(["omarchy-shell", "shell", "toggle", "omarchy.bluetooth"])
+    placeOpened()
+  }
+
   // The phone's dialer on the number (a tel: link through KDE Connect's
   // share), on the device the call came to: the call itself is the user's
   // tap on the phone.
@@ -164,6 +311,8 @@ Item {
 
   // Demo mode rings (or misses) a made-up caller on the viewed device (or
   // the first), over the demo snapshot. It replaces any other demo call.
+  // Through Bluetooth too (Model.demoCallSet): ringing, active, dialing,
+  // waiting, held, ended, missed, none; the card's clicks move it along.
   function showDemoCall(kind) {
     if (!demo) return
     var copy = JSON.parse(JSON.stringify(snapshot || {}))
@@ -172,12 +321,16 @@ Item {
     var d = null
     for (var i = 0; i < list.length; i++) {
       delete list[i].call
+      if (list[i].handsfree) list[i].handsfree = Model.demoHandsfree(list[i].name)
       if (String(list[i].id) === id) d = list[i]
     }
     if (!d) d = Model.pickDevice(copy, "")
     if (!d) return
-    d.call = Model.demoCall(kind, Date.now())
+    var set = Model.demoCallSet(kind, Date.now(), d.name)
+    d.call = set.call
+    d.handsfree = set.handsfree
     callClosed = ({})
+    callMuted = ({})
     snapshot = copy
   }
   readonly property int deviceIndex: {
@@ -287,6 +440,7 @@ Item {
         if (p && Model.isPhonePlayer(p.dbusName, p.identity, deviceName) && !Model.playerHidden(pausedSince[String(p.dbusName)], Date.now())) out.push(p)
       }
       out.sort(function(a, b) { return String(a.identity || "").localeCompare(String(b.identity || "")) })
+      out = out.slice(0, Model.MAX_PHONE_PLAYERS)
     }
     var same = out.length === players.length
     for (var j = 0; same && j < out.length; j++) same = out[j] === players[j]
@@ -505,8 +659,8 @@ Item {
     agentRead.running = true
   }
   onOpenPanelsChanged: if (openPanels > 0) readAgent()
-  // `problems`: [{ label, detail, tried }] (tried: what the plugin's own fix
-  // did, "" when none ran).
+  // `problems`: [{ label, where, detail, tried }] (where: what it is on, by
+  // kind; tried: what the plugin's own fix did, "" when none ran).
   function fixWithAi(problems) {
     if (demo) { report("Demo: your coding agent would open on it", false); return }
     readAgent(function() { launchAgent(problems) })
@@ -514,14 +668,7 @@ Item {
   function launchAgent(problems) {
     // No default agent yet: Omarchy's own choice of one, first.
     if (agentName === "") { silentComponent.createObject(root, { command: ["omarchy", "agent", "--pick"] }).running = true; return }
-    var lines = (problems || []).map(function(p) {
-      return "  - " + p.label + (p.detail ? ": " + p.detail : "") + (p.tried ? " (the plugin's own fix was tried: " + p.tried + ")" : "")
-    }).join("\n")
-    var prompt = "Devices, the Omarchy shell plugin sceny.devices, shows a problem on this machine and I want it fixed.\n\n"
-      + "What it shows:\n" + lines + "\n\n"
-      + "Use the setup-help skill: it covers how to investigate, how to fix it, and when it is worth reporting "
-      + "(never with personal data). If your harness has no skill mechanism, read the skill files directly and follow them instead:\n\n"
-      + "  " + pluginFolder + "/.claude/skills/setup-help/SKILL.md"
+    var prompt = Model.aiPrompt(problems, pluginFolder)
     silentComponent.createObject(root, { command: ["omarchy", "agent", "prompt", prompt] }).running = true
   }
 
@@ -685,6 +832,8 @@ Item {
   // ---- What a device can do (docs/design/setup.md): its report
   //      (kdeconnect-bridge features), and the steps one click runs ----
   property var featureReports: ({})        // device id -> the bridge's features report
+  // Demo: the made-up network From anywhere shows (Model.demoNetwork).
+  property string demoNetworkKind: ""
   // Read at most once in 3 s per device (an opening, Settings, a device's
   // page all ask), unless `force` (after a fix, a check again, the screen
   // turning ready, a wait).
@@ -697,11 +846,19 @@ Item {
     at[String(id)] = now
     featuresReadAt = at
     // A demo's report follows its device (away in the away demo).
-    if (demo) { var d = Object.assign({}, featureReports); var dev = findDevice(id); d[String(id)] = Object.assign(Model.demoFeatures(), { reachable: !!dev && dev.reachable === true }); featureReports = d; return }
+    if (demo) { var d = Object.assign({}, featureReports); var dev = findDevice(id); d[String(id)] = Object.assign(Model.demoFeatures(demoFeature), { reachable: !!dev && dev.reachable === true, network: Model.demoNetwork(demoNetworkKind) }); featureReports = d; return }
     var st = screenOf(String(id))
     var proc = featuresComponent.createObject(root, { device: String(id),
       command: [bridge, "features", String(id)].concat(st && st.state === "ready" ? ["--adb"] : []) })
     proc.running = true
+  }
+  // The gallery failed for want of storage access and the device now reads
+  // as granted (the plugin's grant, or the user's): the mount is tried
+  // again at once, not after the failed mount's 10 minutes.
+  function storageGranted(id, report) {
+    var st = photoState[id]
+    if (!st || st.ok || st.loading || !device || String(device.id) !== id) return
+    if (report.permissions && report.permissions.storage === true && Model.permissionDenied(st.error)) refreshPhotos(true)
   }
   Component {
     id: featuresComponent
@@ -712,7 +869,10 @@ Item {
         onStreamFinished: {
           var r = null
           try { r = JSON.parse(text) } catch (e) {}
-          if (r) { var next = Object.assign({}, root.featureReports); next[featuresProc.device] = r; root.featureReports = next }
+          if (r) {
+            var next = Object.assign({}, root.featureReports); next[featuresProc.device] = r; root.featureReports = next
+            root.storageGranted(featuresProc.device, r)
+          }
           featuresProc.destroy()
         }
       }
@@ -723,11 +883,16 @@ Item {
   // described first (rootAsk, the panel's card: why and every action), and
   // runs only on Continue, only that plan (its hash).
   property var rootAsk: null               // { what, why, actions, hash }
+  // Demo: the made-up device's features in a state to look at ("ask":
+  // notification access missing; "stopped": its notifications stopped
+  // arriving), else as set up (Model.demoFeatures).
+  property string demoFeature: ""
   property var rootThen: null
-  readonly property var rootFixes: ["install", "sshfs", "screen", "firewall"]
+  readonly property var rootFixes: ["install", "sshfs", "screen", "firewall", "ready", "tailscale", "bluetooth"]
   function isRootFix(what) { return rootFixes.indexOf(what) >= 0 || String(what).indexOf("packages") === 0 }
+  // A demo shows the card too (describing changes nothing); Continue there
+  // runs nothing.
   function askRoot(what, then) {
-    if (demo) { report("Demo: nothing is installed", false); if (then) then(1); return }
     var proc = describeComponent.createObject(root, { what: what, then: then || null,
       command: [bridge, "fix"].concat(String(what).split(" ")).concat(["--describe"]) })
     proc.running = true
@@ -773,6 +938,7 @@ Item {
     if (then) then(1)
   }
   function runRoot(plan, then) {
+    if (demo) { report("Demo: nothing is changed", false); if (then) then(1); return }
     var key = "fix:" + plan.what
     var next = Object.assign({}, setupFixing)
     next[plan.what] = true
@@ -800,16 +966,20 @@ Item {
   // A step marked `fallback` runs only when the one before it failed.
   function runSteps(id, steps, key, left, then) {
     if (!id || !steps || steps.length === 0 || isBusy(key)) { if (then) then(); return }
+    // A demo device is made up: nothing reaches the system or a device.
+    if (demo) { report("Demo: nothing is changed", false); if (then) then(true); return }
     var feature = String(key).indexOf("feature:") === 0 ? key.slice(8) : ""
     if (feature) setPending(id, feature, null)
     setBusy(key, true)
     var installs = steps.filter(function(s) { return s.fix.verb === "fix" && root.isRootFix(s.fix.what) })
     var rest = steps.filter(function(s) { return installs.indexOf(s) < 0 })
-    var packages = installs.filter(function(s) { return s.fix.what !== "firewall" }).map(function(s) { return s.fix.what })
-    var firewall = installs.some(function(s) { return s.fix.what === "firewall" })
+    // Packages in one prompt; the firewall, and Tailscale (Omarchy's
+    // installer, in its terminal), each a card of their own.
+    var own = ["firewall", "tailscale"]
+    var packages = installs.filter(function(s) { return own.indexOf(s.fix.what) < 0 }).map(function(s) { return s.fix.what })
     var queue = []
     if (packages.length > 0) queue.push({ root: packages.length === 1 ? packages[0] : "packages " + packages.join(",") })
-    if (firewall) queue.push({ root: "firewall" })
+    own.forEach(function(w) { if (installs.some(function(s) { return s.fix.what === w })) queue.push({ root: w }) })
     rest.forEach(function(s) { queue.push({ step: s }) })
     var stoppedAt = null, cancelled = false
     function finish() {
@@ -1042,15 +1212,27 @@ Item {
   function launchScreen(id, pkg, label, docked, place, fit, sound, pop) {
     var key = pkg ? "screen:" + id + ":" + pkg : "screen"
     var cmd = [bridge, "screen-open", String(id), pkg || "", label || ""]
-    if (pkg) { cmd.push(pop ? "--pop" : "--tiled"); if (sound === "phone") cmd.push("--sound", "phone") }
+    var wasOpen = pkg ? appWindowsOf(id)[label || ""] === true : screenIsOpen(id)
+    // The screen: its own last choice, else here, as it always was.
+    if (!pkg) sound = Model.screenSound(rememberedSound(id, Model.SCREEN_SOUND))
+    sound = Model.soundPlace(sound)
+    if (pkg) cmd.push(pop ? "--pop" : "--tiled")
     else if (docked === false) { cmd.push("--tiled"); if (fit) cmd.push("--fit") }
     else cmd = cmd.concat(placeArgs(place))
+    if (sound !== "here") cmd.push("--sound", sound)
+    if (!pkg) {
+      var places = Object.assign({}, screenPlaces)
+      places[String(id)] = { ctx: place && place.ctx ? place.ctx : ({}), fit: fit === true }
+      screenPlaces = places
+    }
     var proc = actionComponent.createObject(root, { key: key, command: cmd, quietSuccess: true })
     // Connecting takes a moment: said by the card or the tile in a panel;
     // with none open (a key), by Omarchy's on-screen display.
     if (openPanels === 0) report("Connecting to " + Model.deviceLabel(findDevice(id)) + "…", false)
     proc.exited.connect(function(code) {
       if (code === 0) {
+        // Open already: brought forward, playing where it did.
+        if (!wasOpen) root.noteWindowSound(String(id), pkg || Model.SCREEN_SOUND, sound)
         if (pkg) root.appOpened(String(id), pkg)
         root.screenOpened(String(id))
         // Docked, it follows turns under the chip; tiled, its tile takes the
@@ -1140,6 +1322,136 @@ Item {
       return a.package === pkg ? Object.assign({}, a, { opened: Date.now() }) : a
     }) }))
   }
+
+  // ---- A window's sound (#129): where each open window's sound plays, and
+  //      its volume here. Changed on the window's tile, it opens again in
+  //      its place (kdeconnect-bridge screen-sound); the choice is kept per
+  //      app in the cache (`sounds` in the apps list), the screen's under
+  //      Model.SCREEN_SOUND ----
+  property var windowSounds: ({})          // device id -> { package or SCREEN_SOUND: where it plays now }
+  property var demoWindows: ({})           // demo: app names whose window is "open"
+  property var screenPlaces: ({})          // device id -> { ctx, fit } of its screen's opening (its watcher again)
+  // The windows of a device's apps open here (their labels): Hyprland's
+  // own list, by title, as screenOpen; worked out only while a panel shows.
+  readonly property var appWindowsOpen: {
+    if (openPanels === 0) return ({})
+    var out = {}
+    var devs = snapshot && snapshot.devices ? snapshot.devices : []
+    var list = Hyprland.toplevels ? Hyprland.toplevels.values : []
+    for (var i = 0; i < list.length; i++) {
+      var title = String(list[i].title || "")
+      for (var j = 0; j < devs.length; j++) {
+        var suffix = " · " + String(devs[j].name || "Device")
+        if (title.length > suffix.length && title.slice(-suffix.length) === suffix) {
+          var id = String(devs[j].id)
+          out[id] = out[id] || {}
+          out[id][title.slice(0, -suffix.length)] = true
+        }
+      }
+    }
+    return out
+  }
+  function appWindowsOf(id) {
+    if (demo) return demoWindows
+    return id ? (appWindowsOpen[String(id)] || ({})) : ({})
+  }
+  // An app's (or the screen's) own last choice, if it made one.
+  function rememberedSound(id, key) {
+    var list = demo ? demoAppList : appLists[String(id)]
+    var s = list && list.sounds ? list.sounds[key] : undefined
+    return Model.SOUND_PLACES.indexOf(s) >= 0 ? s : ""
+  }
+  function windowSoundOf(id, key) {
+    var now = windowSounds[String(id)]
+    return now && now[key] ? now[key] : ""
+  }
+  function noteWindowSound(id, key, sound) {
+    var next = Object.assign({}, windowSounds)
+    next[String(id)] = Object.assign({}, next[String(id)] || {})
+    next[String(id)][key] = sound
+    windowSounds = next
+  }
+  function rememberSound(id, key, sound) {
+    var list = demo ? demoAppList : appLists[String(id)]
+    var sounds = Object.assign({}, (list && list.sounds) || {})
+    sounds[key] = sound
+    if (demo) demoAppList = Object.assign({}, demoAppList, { sounds: sounds })
+    else if (list) setApps(String(id), Object.assign({}, list, { sounds: sounds }))
+  }
+  // Demo: an app's window "open" here, to see its tile's badge and card.
+  function setDemoWindow(name, open) {
+    var next = Object.assign({}, demoWindows)
+    if (open) next[name] = true
+    else delete next[name]
+    demoWindows = next
+  }
+  // The choice from the window's tile: kept, and the window opened again in
+  // its place with it. `pkg` "" is the screen.
+  function setWindowSound(id, pkg, label, sound) {
+    if (!id || Model.SOUND_PLACES.indexOf(sound) < 0) return
+    var key = pkg || Model.SCREEN_SOUND
+    var busyKey = "sound:" + id + ":" + key
+    if (isBusy(busyKey)) return
+    rememberSound(id, key, sound)
+    if (demo) {
+      noteWindowSound(id, key, sound)
+      report("Demo: " + (label || "the screen") + " would open again with its sound " + ({ here: "here", phone: "on the phone", both: "here and on the phone" })[sound], false)
+      return
+    }
+    setBusy(busyKey, true)
+    var proc = actionComponent.createObject(root, { key: busyKey, command: [bridge, "screen-sound", String(id), sound, pkg || "", label || ""] })
+    proc.exited.connect(function(code) {
+      if (code !== 0) return
+      root.noteWindowSound(String(id), key, sound)
+      root.windowStream = null
+      // The screen's watcher goes with its old window: a new one for the new.
+      if (!pkg) { rewatch.device = String(id); rewatch.restart() }
+    })
+    proc.running = true
+  }
+  Timer {
+    id: rewatch
+    property string device: ""
+    interval: 600
+    onTriggered: {
+      var p = root.screenPlaces[device]
+      if (root.screenIsOpen(device)) root.watchScreen(device, p ? p.ctx : ({}), p ? p.fit === true : false)
+    }
+  }
+  // Its sound here, for the card: { key, found, volume, muted, output }, null
+  // while read. Never the device's own volume (that is Now playing's).
+  property var windowStream: null
+  function readWindowStream(id, pkg, label, extra) {
+    var key = String(id) + ":" + (pkg || Model.SCREEN_SOUND)
+    if (demo) {
+      var was = windowStream && windowStream.key === key ? windowStream : { key: key, found: true, volume: 0.7, muted: false, output: "Speakers" }
+      var lvl = extra && extra.level !== undefined ? extra.level : was.volume
+      var muted = extra && extra.mute ? (extra.mute === "toggle" ? !was.muted : extra.mute === "on") : was.muted
+      windowStream = { key: key, found: true, volume: lvl, muted: muted, output: "Speakers" }
+      return
+    }
+    var cmd = [bridge, "screen-volume", String(id), pkg || "", label || ""]
+    if (extra && extra.level !== undefined) cmd.push("--set", Number(extra.level).toFixed(2))
+    if (extra && extra.mute) cmd.push("--mute", extra.mute)
+    if (streamProc.running) { streamAgain = { id: id, pkg: pkg, label: label, extra: extra }; return }
+    streamProc.key = key
+    streamProc.command = cmd
+    streamProc.running = true
+  }
+  property var streamAgain: null
+  Process {
+    id: streamProc
+    property string key: ""
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var s = null
+        try { s = JSON.parse(text) } catch (e) {}
+        if (s) root.windowStream = Object.assign({ key: streamProc.key }, s)
+      }
+    }
+    onExited: if (root.streamAgain) { var a = root.streamAgain; root.streamAgain = null; Qt.callLater(function() { root.readWindowStream(a.id, a.pkg, a.label, a.extra) }) }
+  }
+
   Process {
     id: appsProc
     property string device: ""
@@ -1376,6 +1688,12 @@ Item {
     if (volumePlayer) volumePlayer.volume = Math.max(0, Math.min(1, v))
   }
   function dismiss(n) { if (n) run("dismiss", [n.id], "dismiss:" + n.id, { kind: "dismiss", note: String(n.id) }) }
+  // Every notification that can be dismissed, each as its own X would (#194).
+  function dismissAll() {
+    var list = notifications
+    for (var i = 0; i < list.length; i++)
+      if (list[i].dismissable === true && !isBusy("dismiss:" + list[i].id)) dismiss(list[i])
+  }
   // A reply or an app action usually makes the phone update or drop the
   // notification; the clicked control waits for that, briefly.
   function noteWait(n) { return { kind: "note", note: String(n.id), before: JSON.stringify(Model.findNotification(device, n.id)) } }
@@ -1418,6 +1736,18 @@ Item {
     reachable: root.reachable
     // Once started (start() on first use) it stays started.
     wanted: root.barCountsMessages
+  }
+
+  // Contacts: the viewed device's cards, read on first use of the page
+  // (contacts.opened()). The device is asked for its cards again only on the
+  // user's own Refresh (contacts.refresh()).
+  readonly property var contacts: contactsService
+  ContactsService {
+    id: contactsService
+    bridge: root.bridge
+    deviceId: root.device ? String(root.device.id) : ""
+    reachable: root.reachable
+    demoPicture: root.demoPicture
   }
 
   Timer {
@@ -1544,17 +1874,41 @@ Item {
   }
   // A track's art from the phone, shown only as a safe copy the bridge makes
   // (decoded in glycin's sandbox): url -> file:// of the copy, "" while there
-  // is none. Asked once per url; a url that is not a local file has none.
+  // is none. Asked once per url, and only for a file in KDE Connect's art
+  // cache (a player is any process's to export, and its art URL its own to
+  // change as fast as it likes): one decode at a time per player and two in
+  // all, a newer url replacing the one waiting.
   property var safeArt: ({})
+  readonly property string artDir: Model.artCacheDir(Quickshell.env("XDG_CACHE_HOME"), Quickshell.env("HOME"))
+  property var artRunning: ({})
+  property var artWaiting: ({})
+  property int artActive: 0
   function artFor(url) { return safeArt[String(url || "")] || "" }
-  function requestArt(url) {
+  function requestArt(url, player) {
     var u = String(url || "")
     if (u === "" || safeArt[u] !== undefined) return
+    var path = Model.artPath(u, artDir)
+    if (path === "") return
+    var key = String(player || "")
+    if (artRunning[key] || artActive >= Model.MAX_ART_DECODES) { artWaiting[key] = u; return }
+    startArt(key, u, path)
+  }
+  function nextArt() {
+    var keys = Object.keys(artWaiting)
+    for (var i = 0; i < keys.length && artActive < Model.MAX_ART_DECODES; i++) {
+      var key = keys[i], u = artWaiting[key]
+      if (artRunning[key]) continue
+      delete artWaiting[key]
+      if (safeArt[u] === undefined) requestArt(u, key)
+    }
+  }
+  function startArt(key, u, path) {
     var next = Object.keys(safeArt).length > 200 ? {} : Object.assign({}, safeArt)
     next[u] = ""
     safeArt = next
-    if (u.indexOf("file://") !== 0) return
-    var proc = artComponent.createObject(root, { url: u, command: [bridge, "safe-image", decodeURIComponent(u.slice(7)), "512"] })
+    artRunning[key] = true
+    artActive += 1
+    var proc = artComponent.createObject(root, { url: u, player: key, command: [bridge, "safe-art", path, "512"] })
     proc.running = true
   }
   Component {
@@ -1562,12 +1916,16 @@ Item {
     Process {
       id: artProc
       property string url: ""
+      property string player: ""
       stdout: StdioCollector {
         onStreamFinished: {
           var path = String(text || "").trim()
           var next = Object.assign({}, root.safeArt)
           next[artProc.url] = path !== "" ? "file://" + encodeURI(path) : ""
           root.safeArt = next
+          delete root.artRunning[artProc.player]
+          root.artActive -= 1
+          root.nextArt()
           artProc.destroy()
         }
       }
