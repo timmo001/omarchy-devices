@@ -2936,6 +2936,14 @@ Panel {
       root.phone.dismiss(n)
       return "ok"
     }
+    // Demo only: the Notifications header's dismiss all, as a click would.
+    // Refused on live data.
+    function pressDismissAll(): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      if (root.dismissableNotes.length === 0) return "nothing to dismiss"
+      root.phone.dismissAll()
+      return "ok"
+    }
     function expandNotification(index: int): string { root.toggleExpanded(root.notifications[index]); return JSON.stringify(root.expandedNotes) }
     function toast(text: string): string { if (root.phone) root.phone.report(text, false); return "ok" }
     // Many devices. A device is its id, nickname or name. Every verb acts on
@@ -5644,6 +5652,8 @@ Panel {
                       visible: opacity > 0
                       Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (notesDismissAll.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                       Layout.alignment: Qt.AlignVCenter
+                      // In the rows' ✕ column: a row's buttons sit inside its right margin.
+                      Layout.rightMargin: Style.space(6)
                       size: Style.space(22)
                       glyph: Model.GLYPH.clearAll
                       waiting: root.dismissingAll
