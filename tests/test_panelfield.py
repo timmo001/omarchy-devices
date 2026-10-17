@@ -348,6 +348,13 @@ class ShippedQml(unittest.TestCase):
             self.assertRegex(f.read(), r"singleton\s+Clipboard\s+\S+\s+Clipboard\.qml")
         self.assertTrue(code(os.path.join(ROOT, "Clipboard.qml")).lstrip().startswith("pragma Singleton"))
 
+    def test_qmldir_lists_every_component(self):
+        # With a qmldir of its own, Quickshell resolves no type the qmldir leaves out
+        with open(os.path.join(ROOT, "qmldir")) as f:
+            listed = set(re.findall(r"^(?:singleton\s+)?\w+\s+\S+\s+(\w+\.qml)$", f.read(), flags=re.M))
+        shipped = {n for n in os.listdir(ROOT) if n.endswith(".qml") and n[0].isupper()}
+        self.assertEqual(sorted(shipped - listed), [])
+
     def test_the_lint_finds_each_way_in_and_names_the_line(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "Bad.qml")
