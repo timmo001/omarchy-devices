@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons
+import qs.Commons as Commons
 import "Model.js" as Model
 
 // Screen and apps, for one device (Model.screenSetup): where it stands, the
@@ -15,7 +16,7 @@ Column {
   property var qr: null
   // Ready, the status sits by the screen's tile (SettingsView) instead.
   property bool showLine: true
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property string fontFamily: Style.font.family
 
   readonly property color dim: Qt.darker(foreground, 1.55)
@@ -121,7 +122,7 @@ Column {
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
           text: root.setup.pairingNote
-          color: root.setup.pairingNote !== "" && root.setup.actions.some(function(a) { return a.key === "pair" }) ? Color.urgent : root.dim
+          color: root.setup.pairingNote !== "" && root.setup.actions.some(function(a) { return a.key === "pair" }) ? Commons.Color.urgent : root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
         }

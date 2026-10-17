@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons
+import qs.Commons as Commons
 import "Model.js" as Model
 
 // From anywhere, for one device (Model.reachSetup, #119): where it stands,
@@ -11,7 +12,7 @@ Column {
   id: root
 
   property var setup: null
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property string fontFamily: Style.font.family
 
   readonly property color dim: Qt.darker(foreground, 1.55)

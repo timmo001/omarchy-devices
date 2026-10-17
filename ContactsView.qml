@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Quickshell.Io
 import Quickshell.Widgets
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -30,8 +31,8 @@ Item {
   // there is nothing; granted: adb read the permission as given.
   property bool noted: false
   property bool granted: false
-  property color foreground: Color.foreground
-  property color urgent: Color.urgent
+  property color foreground: Commons.Color.foreground
+  property color urgent: Commons.Color.urgent
   property string fontFamily: Style.font.family
   property real motion: 1
 
@@ -519,7 +520,7 @@ Item {
             Layout.preferredWidth: Style.space(56)
             Layout.preferredHeight: Style.space(56)
             radius: width / 2
-            color: Style.selectedFillFor(view.foreground, Color.accent)
+            color: Style.selectedFillFor(view.foreground, Commons.Color.accent)
 
             Text {
               anchors.centerIn: parent
@@ -673,7 +674,7 @@ Item {
         Layout.preferredWidth: Style.space(32)
         Layout.preferredHeight: Style.space(32)
         radius: width / 2
-        color: Style.selectedFillFor(view.foreground, Color.accent)
+        color: Style.selectedFillFor(view.foreground, Commons.Color.accent)
         Text {
           anchors.centerIn: parent
           visible: !rowFace.shown

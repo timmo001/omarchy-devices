@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -17,7 +18,7 @@ Item {
   // A problem on what this section holds: a dot beside the title. Its room
   // is always there, so the title and the summary never move.
   property bool marked: false
-  property color urgent: Color.accent
+  property color urgent: Commons.Color.accent
   // A section read from the device (Gallery): at the header's right, a
   // small ring while it is read, else a refresh button while the pointer
   // is on the header (no chrome at rest). Its place is kept, so the header
@@ -25,7 +26,7 @@ Item {
   property bool canBusy: false
   property bool busy: false
   property string refreshTip: "Look again"
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property string fontFamily: Style.font.family
   // Transitions stretch with the panel's slow motion, and pause while a page
   // appears (the panel's `settled`).

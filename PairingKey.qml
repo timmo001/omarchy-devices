@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import "Model.js" as Model
 
 // The key two devices show while they pair, to compare: a small caption
@@ -11,7 +12,7 @@ Column {
   property string key: ""
   // What to do with it: "Check it matches", "Accept on it if it matches".
   property string caption: ""
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property string fontFamily: Style.font.family
   // The panel's rows use a smaller key than a card.
   property bool compact: false
@@ -30,7 +31,7 @@ Column {
   Text {
     textFormat: Text.PlainText
     text: root.key
-    color: Color.accent
+    color: Commons.Color.accent
     font.family: root.fontFamily
     font.pixelSize: root.compact ? Style.font.body + 1 : Style.font.heading + 2
     font.bold: true

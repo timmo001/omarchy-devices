@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Every text field in the plugin is one of these, so Esc steps back the same
@@ -56,8 +57,8 @@ FocusScope {
   // QQuickTextInput capped a field at 32767 characters; a TextEdit does not,
   // and a paste of megabytes would stall every keystroke after it.
   property int maximumLength: 32767
-  property color foreground: Color.foreground
-  property color accent: Color.accent
+  property color foreground: Commons.Color.foreground
+  property color accent: Commons.Color.accent
   readonly property bool hovered: hover.hovered
   function selectAll() { edit.selectAll() }
 

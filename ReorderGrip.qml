@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons
+import qs.Commons as Commons
 import "Model.js" as Model
 
 // The handle a row is dragged by, to move it in its order (Reorder). The
@@ -11,7 +12,7 @@ Text {
   property int index: -1
   // The row that moves, for its height.
   property Item item: null
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
   property string fontFamily: Style.font.family
 

@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -220,9 +221,9 @@ BarWidget {
               readonly property var shown: part || last
               // A ringing call's glyph glows on the ring beat; so does the first
               // chip's device glyph while a device asks to pair.
-              readonly property color ink: !!part && part.call === "ringing" && !!root.phone && root.phone.ringLit ? Color.accent
-                : !!part && part.key === "glyph" && chip.index === 0 && !!root.phone && root.phone.pairLit ? Color.accent
-                : shown && shown.urgent ? (root.bar ? root.bar.urgent : Color.urgent) : (root.bar ? root.bar.barForeground : Color.foreground)
+              readonly property color ink: !!part && part.call === "ringing" && !!root.phone && root.phone.ringLit ? Commons.Color.accent
+                : !!part && part.key === "glyph" && chip.index === 0 && !!root.phone && root.phone.pairLit ? Commons.Color.accent
+                : shown && shown.urgent ? (root.bar ? root.bar.urgent : Commons.Color.urgent) : (root.bar ? root.bar.barForeground : Commons.Color.foreground)
               implicitWidth: !part ? 0 : (part.suffix ? glyphInk.inkWidth + inkGap + suffixText.implicitWidth : whole.implicitWidth)
               height: parent.height
               visible: opacity > 0.01
@@ -309,7 +310,7 @@ BarWidget {
           x: glyphLeft + glyphMetrics.advanceWidth - width * 0.55
           y: button.height / 2 - glyphMetrics.height / 2 - height * 0.2
           // Red with a white count, like a phone's badge; no outline.
-          color: Color.urgent
+          color: Commons.Color.urgent
 
           Text {
             id: bubbleText
@@ -332,7 +333,7 @@ BarWidget {
           radius: width / 2
           x: glyphLeft - width * 0.4
           y: button.height / 2 + glyphMetrics.height / 2 - height * 0.8
-          color: Color.accent
+          color: Commons.Color.accent
         }
       }
     }

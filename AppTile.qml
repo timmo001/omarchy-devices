@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -44,7 +45,7 @@ Item {
   property Item glide: null
   property real motion: 1
   property real iconSize: Style.space(40)
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property string fontFamily: Style.font.family
 
   // pop: Shift held (open it as Omarchy's pop-out, not tiled).
@@ -189,7 +190,7 @@ Item {
     size: Style.space(18)
     iconText: tile.pinned ? Model.GLYPH.pinOff : Model.GLYPH.pin
     tooltipText: Model.keyTip(tile.pinned ? "Unpin from the Apps section" : "Pin to the Apps section", "pin")
-    foreground: tile.pinned ? Color.accent : tile.foreground
+    foreground: tile.pinned ? Commons.Color.accent : tile.foreground
     fontFamily: tile.fontFamily
     onClicked: { tile.pinToggled(); pinFlash.restart() }
   }
@@ -206,14 +207,14 @@ Item {
     width: size
     height: size
     radius: size / 2
-    color: Color.background
+    color: Commons.Color.background
     border.width: 1
-    border.color: soundMouse.containsMouse ? Color.accent : Qt.rgba(tile.foreground.r, tile.foreground.g, tile.foreground.b, 0.35)
+    border.color: soundMouse.containsMouse ? Commons.Color.accent : Qt.rgba(tile.foreground.r, tile.foreground.g, tile.foreground.b, 0.35)
     Text {
       anchors.centerIn: parent
       textFormat: Text.PlainText
       text: tile.app.sound === "phone" ? Model.GLYPH.phone : tile.app.sound === "both" ? Model.GLYPH.devices : Model.GLYPH.volume
-      color: soundMouse.containsMouse ? Color.accent : tile.foreground
+      color: soundMouse.containsMouse ? Commons.Color.accent : tile.foreground
       font.family: tile.fontFamily
       font.pixelSize: Math.round(soundBadge.size * 0.62)
     }

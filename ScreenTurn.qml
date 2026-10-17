@@ -3,6 +3,7 @@ import QtQuick.Effects
 import Quickshell
 import Quickshell.Wayland
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -23,7 +24,7 @@ PanelWindow {
 
   property var phone: null
   property Item anchorItem: null
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property string fontFamily: Style.font.family
   property real motion: 1
 
@@ -175,8 +176,8 @@ PanelWindow {
     rotation: turn.rot
     scale: turn.sc
     radius: Style.cornerRadius
-    color: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 1)
-    borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
+    color: Qt.rgba(Commons.Color.background.r, Commons.Color.background.g, Commons.Color.background.b, 1)
+    borderSpec: Border.surfaceSpec("popups", "border", Commons.Color.popups.border, Math.max(1, Style.space(2)))
     // Fading, the card is one picture: an item's opacity applies to each of
     // its parts, so its dark background showed through its own picture and
     // the hand-off dimmed.

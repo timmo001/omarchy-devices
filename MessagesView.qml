@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -22,8 +23,8 @@ Item {
   property bool contactsWorking: false
   signal allowContacts()
   property var bar: null
-  property color foreground: Color.foreground
-  property color urgent: Color.urgent
+  property color foreground: Commons.Color.foreground
+  property color urgent: Commons.Color.urgent
   property string fontFamily: Style.font.family
 
   readonly property color dim: Qt.darker(foreground, 1.55)
@@ -685,7 +686,7 @@ Item {
                 implicitWidth: chipRow.implicitWidth + Style.space(12)
                 implicitHeight: chipRow.implicitHeight + Style.space(6)
                 radius: Style.cornerRadius
-                color: Style.selectedFillFor(view.foreground, Color.accent)
+                color: Style.selectedFillFor(view.foreground, Commons.Color.accent)
                 Row {
                   id: chipRow
                   anchors.centerIn: parent
@@ -1117,7 +1118,7 @@ Item {
         Layout.preferredWidth: Style.space(32)
         Layout.preferredHeight: Style.space(32)
         radius: width / 2
-        color: Style.selectedFillFor(view.foreground, Color.accent)
+        color: Style.selectedFillFor(view.foreground, Commons.Color.accent)
         Text {
           anchors.centerIn: parent
           textFormat: Text.PlainText
@@ -1245,8 +1246,8 @@ Item {
             + bubble.padY * 2
           radius: Style.cornerRadius
           color: bubble.sent
-            ? Style.selectedFillFor(view.foreground, Color.accent)
-            : Style.hoverFillFor(view.foreground, Color.accent)
+            ? Style.selectedFillFor(view.foreground, Commons.Color.accent)
+            : Style.hoverFillFor(view.foreground, Commons.Color.accent)
           border.width: bubble.failed ? 1 : 0
           border.color: view.urgent
           opacity: bubble.pending ? 0.7 : 1.0
@@ -1343,7 +1344,7 @@ Item {
             width: bodyText.width
             height: bodyText.height
             visible: bodyText.visible
-            color: Style.selectionFillFor(view.foreground, Color.accent)
+            color: Style.selectionFillFor(view.foreground, Commons.Color.accent)
             opacity: copied.running ? 1 : 0
             Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * view.motion; easing.type: Easing.OutCubic } }
           }

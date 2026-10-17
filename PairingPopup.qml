@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -28,7 +29,7 @@ PanelWindow {
   Timer { id: panelGoneTimer; interval: Model.MOTION.outMs + Model.MOTION.inMs; onTriggered: popup.panelGone = true }
   // The chip it points at, in the bar's window.
   property Item anchorItem: null
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property string fontFamily: Style.font.family
   property real motion: 1
 
@@ -79,8 +80,8 @@ PanelWindow {
                          : (popup.barWindow ? popup.barWindow.height : 0) + popup.gap
     radius: Style.cornerRadius
     // Solid: whatever is under it never shows through.
-    color: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 1)
-    borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
+    color: Qt.rgba(Commons.Color.background.r, Commons.Color.background.g, Commons.Color.background.b, 1)
+    borderSpec: Border.surfaceSpec("popups", "border", Commons.Color.popups.border, Math.max(1, Style.space(2)))
     opacity: popup.showing ? 1 : 0
     // In from the bar's side, at the plugin's pace.
     transform: Translate { y: popup.showing ? 0 : (popup.barAtBottom ? Style.space(10) : -Style.space(10))
@@ -102,7 +103,7 @@ PanelWindow {
         Layout.alignment: Qt.AlignTop
         Layout.topMargin: Style.space(2)
         text: popup.shown ? Model.deviceGlyph(popup.shown) : ""
-        color: Color.accent
+        color: Commons.Color.accent
         font.family: popup.fontFamily
         font.pixelSize: Style.font.display
       }

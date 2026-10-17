@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -22,7 +23,7 @@ Item {
   property bool cursorActive: false
   property real motion: 1
   property bool animate: true
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property string fontFamily: Style.font.family
 
   // pop: as Omarchy's pop-out (Shift+Enter, Shift+click), else tiled.

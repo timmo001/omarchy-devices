@@ -3,6 +3,7 @@ import QtQml
 import QtQuick.Layouts
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -41,7 +42,7 @@ Column {
       }
     }
   }
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property string fontFamily: Style.font.family
 
   readonly property color dim: Qt.darker(foreground, 1.55)

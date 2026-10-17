@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -25,7 +26,7 @@ Item {
   property Item glide: null
   property real motion: 1
   property var isWorking: function(app) { return false }
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property string fontFamily: Style.font.family
 
   signal activated(var app, bool pop)
@@ -133,9 +134,9 @@ Item {
     width: row.width
     height: Math.round(row.cellHeight * 0.75)
     radius: Style.cornerRadius
-    color: row.incoming ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.12) : "transparent"
+    color: row.incoming ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.12) : "transparent"
     border.width: 1
-    border.color: row.incoming ? Color.accent : Qt.rgba(row.foreground.r, row.foreground.g, row.foreground.b, 0.25)
+    border.color: row.incoming ? Commons.Color.accent : Qt.rgba(row.foreground.r, row.foreground.g, row.foreground.b, 0.25)
     Behavior on color { ColorAnimation { duration: Model.MOTION.inMs * row.motion } }
     Text {
       anchors.centerIn: parent

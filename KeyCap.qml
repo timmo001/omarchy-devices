@@ -1,12 +1,13 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // One key, drawn as a key cap. The Keys page and the Screen and apps page
 // both draw their keys with this, so a key reads the same everywhere.
 Rectangle {
   id: cap
   property string label: ""
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property string fontFamily: Style.font.family
 
   width: capText.implicitWidth + Style.space(10)

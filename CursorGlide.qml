@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -14,7 +15,7 @@ Item {
   property Item target: null
   property bool shown: true
   property real motion: 1
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   // When a key last moved the cursor (Date.now()); set by the page.
   property double keyedAt: 0
 

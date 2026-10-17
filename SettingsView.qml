@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -74,11 +75,11 @@ Column {
   property var phone: null
   // The panel's own background: a dragged row is painted solid over it, so
   // it never shows the row it passes over through itself.
-  property color panelBackground: Color.background
+  property color panelBackground: Commons.Color.background
   property real motion: 1
   property bool animate: true
   function isFolded(key) { return collapsed[key] === true }
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property string fontFamily: Style.font.family
 
   signal activated(int index)
@@ -142,9 +143,9 @@ Column {
     width: root.width
     implicitHeight: statusColumn.implicitHeight + 2 * Style.space(8)
     radius: Style.cornerRadius
-    color: root.problemCount > 0 ? Qt.alpha(Color.urgent, 0.06) : "transparent"
+    color: root.problemCount > 0 ? Qt.alpha(Commons.Color.urgent, 0.06) : "transparent"
     border.width: 1
-    border.color: root.problemCount > 0 ? Qt.alpha(Color.urgent, 0.55) : Qt.alpha(root.foreground, 0.18)
+    border.color: root.problemCount > 0 ? Qt.alpha(Commons.Color.urgent, 0.55) : Qt.alpha(root.foreground, 0.18)
     Column {
       id: statusColumn
       anchors.left: parent.left
@@ -159,7 +160,7 @@ Column {
         Text {
           Layout.leftMargin: Style.space(4)
           text: root.problemCount > 0 ? Model.GLYPH.alert : Model.GLYPH.check
-          color: root.problemCount > 0 ? Color.urgent : root.foreground
+          color: root.problemCount > 0 ? Commons.Color.urgent : root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.icon
           Layout.alignment: Qt.AlignVCenter
@@ -168,7 +169,7 @@ Column {
           Layout.fillWidth: true
           textFormat: Text.PlainText
           text: Model.problemsLine(root.rows.filter(function(r) { return r.kind === "problem" }))
-          color: root.problemCount > 0 ? Color.urgent : root.foreground
+          color: root.problemCount > 0 ? Commons.Color.urgent : root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
           elide: Text.ElideRight
@@ -218,7 +219,7 @@ Column {
     title: "MY DEVICES"
     summary: root.devicesSummary()
     folded: root.isFolded("devicesList")
-    foreground: root.devicesIssues > 0 ? Color.urgent : root.foreground
+    foreground: root.devicesIssues > 0 ? Commons.Color.urgent : root.foreground
     fontFamily: root.fontFamily
     motion: root.motion
     animate: root.animate
@@ -818,7 +819,7 @@ Column {
       text: root.unpairArmed ? "Unpair? Click again to confirm" : "Unpair"
       iconText: Model.GLYPH.close
       tooltipText: root.unpairArmed ? "" : "Forget it here; pair again from it to come back"
-      foreground: root.unpairArmed ? Color.urgent : root.foreground
+      foreground: root.unpairArmed ? Commons.Color.urgent : root.foreground
       fontFamily: root.fontFamily
       bordered: true
       hasCursor: false
@@ -1065,7 +1066,7 @@ Column {
           visible: text !== "" && !listRow.hasPills
           readonly property string note: root.pairingNotes[listRow.row.id] || ""
           text: note !== "" ? note + " · pair again" : (listRow.row.status || listRow.row.hint || "")
-          color: note !== "" || (listRow.row.issues || 0) > 0 ? Color.urgent : root.dim
+          color: note !== "" || (listRow.row.issues || 0) > 0 ? Commons.Color.urgent : root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
@@ -1152,7 +1153,7 @@ Column {
     implicitHeight: pairedRow.implicitHeight + 2 * Style.space(12)
     radius: Style.cornerRadius
     color: root.panelBackground
-    borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
+    borderSpec: Border.controlSpec("focus", root.foreground, Commons.Color.accent)
     RowLayout {
       id: pairedRow
       anchors.left: parent.left
@@ -1163,7 +1164,7 @@ Column {
       spacing: Style.space(14)
       Text {
         text: root.justPaired ? root.justPaired.glyph : ""
-        color: Color.accent
+        color: Commons.Color.accent
         font.family: root.fontFamily
         font.pixelSize: Style.font.display
       }
@@ -1174,7 +1175,7 @@ Column {
           Layout.fillWidth: true
           textFormat: Text.PlainText
           text: Model.GLYPH.check + "  Paired with " + (root.justPaired ? root.justPaired.title : "")
-          color: Color.accent
+          color: Commons.Color.accent
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
           font.bold: true
@@ -1208,7 +1209,7 @@ Column {
       implicitHeight: pcardContent.implicitHeight + 2 * Style.space(12)
       radius: Style.cornerRadius
       color: root.cursorIndex === pcard.rowIndex ? "transparent" : root.panelBackground
-      borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
+      borderSpec: Border.controlSpec("focus", root.foreground, Commons.Color.accent)
       CursorStop { here: root.cursorIndex === pcard.rowIndex; glide: root.cursorGlide }
 
       MouseArea {
@@ -1230,7 +1231,7 @@ Column {
           Layout.alignment: Qt.AlignTop
           Layout.topMargin: Style.space(2)
           text: pcard.row.glyph || ""
-          color: Color.accent
+          color: Commons.Color.accent
           font.family: root.fontFamily
           font.pixelSize: Style.font.display
         }
@@ -1310,7 +1311,7 @@ Column {
     radius: height / 2
     color: "transparent"
     border.width: 1
-    border.color: failing ? Color.urgent : (on ? Qt.darker(root.foreground, 1.3) : Qt.darker(root.foreground, 2.2))
+    border.color: failing ? Commons.Color.urgent : (on ? Qt.darker(root.foreground, 1.3) : Qt.darker(root.foreground, 2.2))
     Row {
       id: pillRow
       anchors.centerIn: parent
@@ -1318,7 +1319,7 @@ Column {
       Text {
         anchors.verticalCenter: parent.verticalCenter
         text: pillBox.failing ? Model.GLYPH.alert : (pillBox.on ? Model.GLYPH.check : Model.GLYPH.optional)
-        color: pillBox.failing ? Color.urgent : (pillBox.on ? root.foreground : root.dim)
+        color: pillBox.failing ? Commons.Color.urgent : (pillBox.on ? root.foreground : root.dim)
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
       }
@@ -1326,7 +1327,7 @@ Column {
         anchors.verticalCenter: parent.verticalCenter
         textFormat: Text.PlainText
         text: pillBox.pill.label || ""
-        color: pillBox.failing ? Color.urgent : (pillBox.on ? root.foreground : root.dim)
+        color: pillBox.failing ? Commons.Color.urgent : (pillBox.on ? root.foreground : root.dim)
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
       }
@@ -1356,9 +1357,9 @@ Column {
       Rectangle {
         anchors.fill: parent
         radius: tileBox.radius
-        color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.14)
+        color: Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.14)
         border.width: 1
-        border.color: Color.accent
+        border.color: Commons.Color.accent
         opacity: root.screenOpen ? 1 : 0
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: (root.screenOpen ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
@@ -1377,7 +1378,7 @@ Column {
             id: tileGlyph
             anchors.centerIn: parent
             text: Model.GLYPH.screen
-            color: root.screenOpen ? Color.accent : root.foreground
+            color: root.screenOpen ? Commons.Color.accent : root.foreground
             opacity: str.working ? 0 : 1.0
             font.family: root.fontFamily
             font.pixelSize: Style.font.heading + 2
@@ -1844,7 +1845,7 @@ Column {
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
             text: featureRow.row.pending ? featureRow.row.pending.text : ""
-            color: featureRow.row.pending && featureRow.row.pending.failed ? Color.urgent : root.dim
+            color: featureRow.row.pending && featureRow.row.pending.failed ? Commons.Color.urgent : root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
@@ -1902,7 +1903,7 @@ Column {
         Layout.preferredWidth: Style.space(20)
         horizontalAlignment: Text.AlignHCenter
         text: checkRow.row.ok === true ? Model.GLYPH.check : (checkRow.optional ? Model.GLYPH.optional : Model.GLYPH.alert)
-        color: checkRow.failing ? Color.urgent : root.dim
+        color: checkRow.failing ? Commons.Color.urgent : root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
       }

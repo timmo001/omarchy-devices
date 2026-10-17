@@ -5,6 +5,7 @@ import QtQuick.Window as QW
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -1518,8 +1519,8 @@ Panel {
   // The nickname field has focus (typing goes to it, not to the keys).
   property bool nicknameFocused: false
 
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
-  readonly property color urgent: bar ? bar.urgent : Color.urgent
+  readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
+  readonly property color urgent: bar ? bar.urgent : Commons.Color.urgent
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property int lowPercent: {
@@ -3594,8 +3595,8 @@ Panel {
         width: menuColumn.implicitWidth + Style.space(8)
         height: menuColumn.implicitHeight + Style.space(8)
         radius: Style.cornerRadius
-        color: root.bar ? root.bar.background : Color.background
-        borderSpec: Border.controlSpec("normal", root.foreground, Color.accent)
+        color: root.bar ? root.bar.background : Commons.Color.background
+        borderSpec: Border.controlSpec("normal", root.foreground, Commons.Color.accent)
         Column {
           id: menuColumn
           anchors.centerIn: parent
@@ -3644,7 +3645,7 @@ Panel {
         z: 11
         visible: rootCard.visible || soundBox.visible || askBox.visible
         radius: Style.cornerRadius
-        color: Qt.alpha(root.bar ? root.bar.background : Color.background, 0.6 * Math.max(rootCard.opacity, soundBox.opacity, askBox.opacity))
+        color: Qt.alpha(root.bar ? root.bar.background : Commons.Color.background, 0.6 * Math.max(rootCard.opacity, soundBox.opacity, askBox.opacity))
         MouseArea {
           anchors.fill: parent
           hoverEnabled: true
@@ -3671,8 +3672,8 @@ Panel {
         width: Math.min(parent.width - Style.space(32), Style.space(420))
         height: askColumn.implicitHeight + Style.space(28)
         radius: Style.cornerRadius
-        color: root.bar ? root.bar.background : Color.background
-        borderSpec: Border.controlSpec("focus", root.urgent, Color.accent)
+        color: root.bar ? root.bar.background : Commons.Color.background
+        borderSpec: Border.controlSpec("focus", root.urgent, Commons.Color.accent)
         opacity: root.fixAsk && !(root.phone && root.phone.rootAsk) ? 1 : 0
         visible: opacity > 0.01
         Behavior on opacity { NumberAnimation { duration: (root.fixAsk ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
@@ -3703,8 +3704,8 @@ Panel {
         width: Math.min(parent.width - Style.space(32), Style.space(420))
         height: soundColumn.implicitHeight + Style.space(28)
         radius: Style.cornerRadius
-        color: root.bar ? root.bar.background : Color.background
-        borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
+        color: root.bar ? root.bar.background : Commons.Color.background
+        borderSpec: Border.controlSpec("focus", root.foreground, Commons.Color.accent)
         opacity: root.soundTarget && !(root.phone && root.phone.rootAsk) ? 1 : 0
         visible: opacity > 0.01
         Behavior on opacity { NumberAnimation { duration: (root.soundTarget ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
@@ -3833,8 +3834,8 @@ Panel {
         height: rootColumn.implicitHeight + Style.space(28)
         readonly property real listRoom: Math.max(Style.space(60), screenHeight * 0.8 - Style.space(28) - rootColumn.fixedHeight)
         radius: Style.cornerRadius
-        color: root.bar ? root.bar.background : Color.background
-        borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
+        color: root.bar ? root.bar.background : Commons.Color.background
+        borderSpec: Border.controlSpec("focus", root.foreground, Commons.Color.accent)
         opacity: plan ? 1 : 0
         visible: opacity > 0.01
         Behavior on opacity { NumberAnimation { duration: (rootCard.plan ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
@@ -3950,8 +3951,8 @@ Panel {
         width: Math.min(parent.width - Style.space(32), toastLabel.implicitWidth + Style.space(28))
         height: toastLabel.implicitHeight + Style.space(14)
         radius: Style.cornerRadius
-        color: root.bar ? root.bar.background : Color.background
-        borderSpec: Border.controlSpec(shownFailed ? "focus" : "normal", shownFailed ? root.urgent : root.foreground, Color.accent)
+        color: root.bar ? root.bar.background : Commons.Color.background
+        borderSpec: Border.controlSpec(shownFailed ? "focus" : "normal", shownFailed ? root.urgent : root.foreground, Commons.Color.accent)
         opacity: showing ? 1 : 0
         visible: opacity > 0.01
 
@@ -4037,7 +4038,7 @@ Panel {
             Text {
               anchors.verticalCenter: parent.verticalCenter
               text: Model.GLYPH.tip
-              color: Color.accent
+              color: Commons.Color.accent
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
             }
@@ -4115,8 +4116,8 @@ Panel {
               width: parent.width
               implicitHeight: previewRow.implicitHeight + Style.space(14)
               radius: Style.cornerRadius
-              color: Style.selectedFillFor(root.foreground, Color.accent)
-              borderSpec: Border.controlSpec("hover-cursor", root.foreground, Color.accent)
+              color: Style.selectedFillFor(root.foreground, Commons.Color.accent)
+              borderSpec: Border.controlSpec("hover-cursor", root.foreground, Commons.Color.accent)
               RowLayout {
                 id: previewRow
                 anchors.left: parent.left
@@ -4127,7 +4128,7 @@ Panel {
                 spacing: Style.space(10)
                 Text {
                   text: Model.GLYPH.devices
-                  color: Color.accent
+                  color: Commons.Color.accent
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.icon
                 }
@@ -4188,8 +4189,8 @@ Panel {
               width: parent.width
               height: pairRow.implicitHeight + Style.space(20)
               radius: Style.cornerRadius
-              color: root.bar ? root.bar.background : Color.background
-              borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
+              color: root.bar ? root.bar.background : Commons.Color.background
+              borderSpec: Border.controlSpec("focus", root.foreground, Commons.Color.accent)
 
 
               // Clicks on the card stay on the card.
@@ -4209,7 +4210,7 @@ Panel {
                 Text {
                   textFormat: Text.PlainText
                   text: Model.deviceGlyph(pairCard.shown)
-                  color: Color.accent
+                  color: Commons.Color.accent
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.display
                   Layout.alignment: Qt.AlignTop
@@ -4289,8 +4290,8 @@ Panel {
               width: parent.width
               height: callBody.implicitHeight + Style.space(20)
               radius: Style.cornerRadius
-              color: root.bar ? root.bar.background : Color.background
-              borderSpec: Border.controlSpec(ringing || onCall ? "focus" : "normal", root.foreground, Color.accent)
+              color: root.bar ? root.bar.background : Commons.Color.background
+              borderSpec: Border.controlSpec(ringing || onCall ? "focus" : "normal", root.foreground, Commons.Color.accent)
 
               // Clicks on the card stay on the card.
               MouseArea { anchors.fill: parent }
@@ -4313,7 +4314,7 @@ Panel {
                   RingingPhone {
                     visible: callCard.ringing
                     ringing: callCard.ringing && callCard.showing && root.opened
-                    color: Color.accent
+                    color: Commons.Color.accent
                     fontFamily: root.fontFamily
                     size: Style.font.display
                     motion: root.motion
@@ -4325,7 +4326,7 @@ Panel {
                     text: !callCard.shown ? "" : callCard.shown.state === "missed" ? Model.GLYPH.callMissed
                       : callCard.shown.state === "held" ? Model.GLYPH.callHold : Model.GLYPH.callRing
                     color: !callCard.shown ? root.dim : callCard.shown.state === "missed" ? root.urgent
-                      : callCard.shown.state === "ended" ? root.dim : Color.accent
+                      : callCard.shown.state === "ended" ? root.dim : Commons.Color.accent
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.display
                     Layout.alignment: Qt.AlignVCenter
@@ -4381,8 +4382,8 @@ Panel {
                       required property var modelData
                       iconText: modelData.glyph
                       tooltipText: modelData.label
-                      foreground: modelData.kind === "answer" ? Color.accent : modelData.kind === "end" ? root.urgent
-                        : modelData.kind === "on" ? Color.accent : root.foreground
+                      foreground: modelData.kind === "answer" ? Commons.Color.accent : modelData.kind === "end" ? root.urgent
+                        : modelData.kind === "on" ? Commons.Color.accent : root.foreground
                       fontFamily: root.fontFamily
                       onClicked: root.callPress(modelData.key)
                     }
@@ -4466,7 +4467,7 @@ Panel {
                       required property var modelData
                       iconText: modelData.glyph
                       tooltipText: modelData.label
-                      foreground: modelData.kind === "answer" ? Color.accent : modelData.kind === "end" ? root.urgent : root.foreground
+                      foreground: modelData.kind === "answer" ? Commons.Color.accent : modelData.kind === "end" ? root.urgent : root.foreground
                       fontFamily: root.fontFamily
                       onClicked: root.callPress(modelData.key)
                     }
@@ -4634,9 +4635,9 @@ Panel {
                   z: moving ? 5 : 0
                   // Solid while dragged, so the tab it passes over never shows
                   // through; otherwise the kit's own fills (hover, selected).
-                  color: tab.moving ? Qt.tint(root.bar ? root.bar.background : Color.background, Style.hoverFillFor(root.foreground, Color.accent))
-                    : hot ? Style.hoverFillFor(root.foreground, Color.accent)
-                    : selected ? Style.selectedFillFor(root.foreground, Color.accent) : "transparent"
+                  color: tab.moving ? Qt.tint(root.bar ? root.bar.background : Commons.Color.background, Style.hoverFillFor(root.foreground, Commons.Color.accent))
+                    : hot ? Style.hoverFillFor(root.foreground, Commons.Color.accent)
+                    : selected ? Style.selectedFillFor(root.foreground, Commons.Color.accent) : "transparent"
                   DragHandler {
                     id: tabDrag
                     target: null
@@ -4689,9 +4690,9 @@ Panel {
               anchors.fill: parent
               gradient: Gradient {
                 orientation: Gradient.Horizontal
-                GradientStop { position: 0; color: arrow.dir > 0 ? "transparent" : (root.bar ? root.bar.background : Color.background) }
-                GradientStop { position: 0.45; color: root.bar ? root.bar.background : Color.background }
-                GradientStop { position: 1; color: arrow.dir > 0 ? (root.bar ? root.bar.background : Color.background) : "transparent" }
+                GradientStop { position: 0; color: arrow.dir > 0 ? "transparent" : (root.bar ? root.bar.background : Commons.Color.background) }
+                GradientStop { position: 0.45; color: root.bar ? root.bar.background : Commons.Color.background }
+                GradientStop { position: 1; color: arrow.dir > 0 ? (root.bar ? root.bar.background : Commons.Color.background) : "transparent" }
               }
               rotation: 0
             }
@@ -4762,7 +4763,7 @@ Panel {
                   Behavior on opacity { NumberAnimation { duration: (heroHover.hovered || root.editing ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                   iconText: root.editing ? Model.GLYPH.check : Model.GLYPH.edit
                   tooltipText: root.editing ? Model.keyTip("Done: keep the changes", "edit") + "; Esc undoes them" : Model.keyTip("Edit this page", "edit")
-                  foreground: root.editing ? Color.accent : root.foreground
+                  foreground: root.editing ? Commons.Color.accent : root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.toggleEditing()
                 }
@@ -4917,7 +4918,7 @@ Panel {
                   implicitHeight: flagsRow.y + flagsRow.height + Style.space(6)
                   radius: Style.cornerRadius
                   color: "transparent"
-                  borderSpec: Border.controlSpec("normal", root.foreground, Color.accent)
+                  borderSpec: Border.controlSpec("normal", root.foreground, Commons.Color.accent)
 
                   Text {
                     id: chipGlyph
@@ -5121,7 +5122,7 @@ Panel {
                           iconText: modelData.glyph
                           tooltipText: root.actionOn(modelData.key) ? modelData.label + " (open)" : Model.keyTip(modelData.label, modelData.key === "messages" ? "messages" : "")
                           size: Style.space(22)
-                          foreground: root.actionOn(modelData.key) ? Color.accent : root.foreground
+                          foreground: root.actionOn(modelData.key) ? Commons.Color.accent : root.foreground
                           fontFamily: root.fontFamily
                           enabled: modelData.enabled === true
                           hasCursor: root.cursorActive && root.focusSection === "actions" && root.actionIndex === index
@@ -6358,7 +6359,7 @@ Panel {
                 unpairArmed: !!root.scopeDevice && root.unpairArmed === String(root.scopeDevice.id)
                 deviceName: root.scopeDevice ? Model.deviceLabel(root.scopeDevice) : ""
                 phone: root.phone
-                panelBackground: root.bar ? root.bar.background : Color.background
+                panelBackground: root.bar ? root.bar.background : Commons.Color.background
                 onRejectRequested: function(id) { root.cancelPairing(id) }
                 pairingNotes: root.pairingNotes
                 pairingSince: root.pairingSince
@@ -6448,7 +6449,7 @@ Panel {
       CursorStop { here: root.editing && root.cursorActive && root.focusSection === editBar.section; glide: root.cursorGlide }
       foreground: root.foreground
       // Solid while it moves, so what it passes over never shows through.
-      color: sectionMove.from >= 0 && sectionMove.from === editBar.place ? Qt.tint(root.bar ? root.bar.background : Color.background, fill)
+      color: sectionMove.from >= 0 && sectionMove.from === editBar.place ? Qt.tint(root.bar ? root.bar.background : Commons.Color.background, fill)
         : (hasCursor ? fill : "transparent")
 
       MouseArea {
@@ -6521,9 +6522,9 @@ Panel {
     readonly property bool moving: !!order && order.from >= 0 && tile.chosen === true && order.from === tile.pos
     implicitHeight: editColumn.implicitHeight + Style.space(18)
     radius: Style.cornerRadius
-    borderSpec: Border.controlSpec(tileMouse.containsMouse || moving ? "hover-cursor" : "normal", root.foreground, Color.accent)
-    color: moving ? Qt.tint(root.bar ? root.bar.background : Color.background, Style.hoverFillFor(root.foreground, Color.accent))
-      : (tileMouse.containsMouse ? Style.hoverFillFor(root.foreground, Color.accent) : "transparent")
+    borderSpec: Border.controlSpec(tileMouse.containsMouse || moving ? "hover-cursor" : "normal", root.foreground, Commons.Color.accent)
+    color: moving ? Qt.tint(root.bar ? root.bar.background : Commons.Color.background, Style.hoverFillFor(root.foreground, Commons.Color.accent))
+      : (tileMouse.containsMouse ? Style.hoverFillFor(root.foreground, Commons.Color.accent) : "transparent")
     opacity: tile.chosen === true ? 1 : 0.45
     transform: ReorderShift { order: editTile.order; index: editTile.tile.chosen === true ? editTile.tile.pos : -1 }
     z: moving ? 10 : 0
@@ -6555,7 +6556,7 @@ Panel {
       anchors.right: parent.right
       anchors.margins: Style.space(3)
       text: editTile.tile.chosen === true ? Model.GLYPH.remove : Model.GLYPH.add
-      color: editTile.tile.chosen === true ? root.foreground : Color.accent
+      color: editTile.tile.chosen === true ? root.foreground : Commons.Color.accent
       font.family: root.fontFamily
       font.pixelSize: Style.font.body
     }
@@ -6600,8 +6601,8 @@ Panel {
     readonly property bool moving: barMove.from >= 0 && tile.chosen === true && barMove.from === tile.pos
     implicitHeight: tileColumn.implicitHeight + Style.space(6)
     radius: Style.cornerRadius
-    color: moving ? Qt.tint(root.bar ? root.bar.background : Color.background, Style.hoverFillFor(root.foreground, Color.accent))
-      : (barTileMouse.containsMouse ? Style.hoverFillFor(root.foreground, Color.accent) : "transparent")
+    color: moving ? Qt.tint(root.bar ? root.bar.background : Commons.Color.background, Style.hoverFillFor(root.foreground, Commons.Color.accent))
+      : (barTileMouse.containsMouse ? Style.hoverFillFor(root.foreground, Commons.Color.accent) : "transparent")
     opacity: tile.chosen === true ? 1 : 0.4
     transform: ReorderShift { order: barMove; index: barTile.tile.chosen === true ? barTile.tile.pos : -1 }
     z: moving ? 10 : 0
@@ -6633,7 +6634,7 @@ Panel {
           height: Math.round(sampleText.implicitHeight * 0.62)
           width: height
           radius: height / 2
-          color: Color.urgent
+          color: Commons.Color.urgent
           Text {
             anchors.centerIn: parent
             text: barTile.tile.sample || ""
@@ -6685,7 +6686,7 @@ Panel {
     id: albumEdge
     required property var strip
     required property bool leading
-    readonly property color panel: root.bar ? root.bar.background : Color.background
+    readonly property color panel: root.bar ? root.bar.background : Commons.Color.background
     parent: strip
     anchors.left: leading ? parent.left : undefined
     anchors.right: leading ? undefined : parent.right
@@ -7187,9 +7188,9 @@ Panel {
     Rectangle {
       anchors.fill: parent
       radius: tile.radius
-      color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.14)
+      color: Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.14)
       border.width: 1
-      border.color: Color.accent
+      border.color: Commons.Color.accent
       opacity: tile.isOn ? 1 : 0
       visible: opacity > 0
       Behavior on opacity { NumberAnimation { duration: (tile.isOn ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
@@ -7215,7 +7216,7 @@ Panel {
           id: tileGlyph
           anchors.centerIn: parent
           text: tile.action.glyph || ""
-          color: tile.isOn ? Color.accent : root.foreground
+          color: tile.isOn ? Commons.Color.accent : root.foreground
           opacity: tile.working ? 0 : 1.0
           font.family: root.fontFamily
           font.pixelSize: Style.font.heading + 2
