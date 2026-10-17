@@ -37,6 +37,10 @@ Panel {
   // any dismiss is still on its way to the device.
   readonly property var dismissableNotes: notifications.filter(function(n) { return n.dismissable === true })
   readonly property bool dismissingAll: !!phone && dismissableNotes.some(function(n) { return phone.isBusy("dismiss:" + n.id) })
+  // Shift+Delete, as the header's button, from the Notifications section
+  // only: not while editing, and (the key catcher's `blocked`) never in a field.
+  readonly property bool dismissAllKeyReady: opened && mainView && !editing && cursorActive && focusSection === "notifications"
+    && !isCollapsed("notifications") && !!phone && !dismissingAll && dismissableNotes.length > 0
   readonly property var can: device && device.can ? device.can : ({})
 
   // Layout settings, from this widget's shell.json entry. Written only by the
@@ -515,6 +519,9 @@ Panel {
   property var screenDetour: null
   // The page's keyboard cursor, drawn once (CursorGlide, in pageHost).
   property Item cursorGlide: null
+  // A hover moves the cursor only when the pointer moved (PointerGate).
+  function hoverTake(action) { pointerGate.take(action) }
+  function hoverMovedTo(p) { return pointerGate.movedTo(p) }
 
   // Size animations (folds, the carousel, the cover) run for the user's own
   // changes only. A hidden page has no height, so while a page appears (or
@@ -1349,7 +1356,8 @@ Panel {
     if (panelFlick) panelFlick.contentY = 0
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
-  // A demo leaves nothing in the settings: entering it keeps a copy of this
+  // A demo leaves nothing in the settings: its edits are never written to
+  // shell.json (persistSettings); entering it keeps a copy of this
   // widget's entry (on the service, shared by every monitor's panel), and
   // leaving it writes that copy back, undoing anything changed meanwhile,
   // defaults included. Keys added during the demo go.
@@ -1564,6 +1572,18 @@ Panel {
   readonly property bool callReady: !!call && !!phone && phone.callsReady(call.device)
   readonly property bool callMuted: !!call && !!phone && phone.isCallMuted(call.device)
   readonly property var callButtons: Model.callActions(call, callReady, callDevice ? callDevice.can : null, callMuted)
+  // A missed call offers Calls here while it is not set up (#271): the
+  // Calls here row's own click, or No thanks (its switch off).
+  readonly property var callOffer: callDevice ? Model.callOffer(call, featureRowsFor(callDevice)) : null
+  function callOfferPress(key) {
+    var d = callDevice
+    if (!d || !phone) return
+    var id = String(d.id)
+    if (key === "none") { setCallsHere(id, false); return }
+    if (key === "open") { openSettings(); openScope(id); return }
+    var row = featureRowsFor(d).filter(function(r) { return r.key === "callsHere" })[0]
+    if (row) featureAction(row, d)
+  }
   // The keypad, open on the user's click, closed when the call is over.
   property bool callKeypad: false
   // The call's volume here as the user left it (-1: the device's level).
@@ -1826,7 +1846,7 @@ Panel {
     var target = phone.findDevice(id)
     if (messagesOpen && target && !hasTexts(target)) {
       if (leaveMessages === true) closeMessagesView()
-      else { phone.report(Model.deviceLabel(target) + " has no text messages", false); return }
+      else { phone.report(Model.deviceLabel(target) + " has no text messages", false, "The device has no text messages"); return }
     }
     // Contacts follows the tab to the device's own cards (the reader follows
     // the viewed device by itself); a device that keeps its contacts has
@@ -1913,8 +1933,10 @@ Panel {
   readonly property var sectionNotes: {
     var rows = device ? featureRowsFor(device) : []
     return { notifications: Model.sectionNote(rows, "notifications"), apps: Model.sectionNote(rows, "apps"),
-             messages: Model.sectionNote(rows, "messages") }
+             messages: Model.sectionNote(rows, "messages"), contacts: Model.sectionNote(rows, "contacts") }
   }
+  // Whether adb read the viewed device's contacts permission as given.
+  readonly property bool contactsGranted: !!device && !!setupById[String(device.id)] && Model.permissionGranted(setupById[String(device.id)].items, "contacts")
   // The sections drawn under the header, in the chosen order: switched on
   // in Layout and with something in them (or something to say about it),
   // while the device is here.
@@ -2166,7 +2188,7 @@ Panel {
   // keystrokes into a text field (AGENTS.md).
   function openContactsView(id) {
     if (device && can.contacts !== true) {
-      if (phone) phone.report(Model.deviceLabel(device) + " does not share its contacts", false)
+      if (phone) phone.report(Model.deviceLabel(device) + " does not share its contacts", false, "The device does not share its contacts")
       return
     }
     replyingTo = ""
@@ -2216,7 +2238,7 @@ Panel {
                             rows: c.rows.count, reading: c.reading, syncing: c.syncing, error: c.lastError,
                             app: c.appName, card: c.openId !== "", details: c.details.count,
                             pane: contactsView ? contactsView.pane : "", cursor: contactsView && contactsView.cursorActive ? contactsView.rowCursor : -1,
-                            search: contactsView ? contactsView.searchText : "",
+                            searching: contactsView ? contactsView.searchText !== "" : false,
                             searchFocused: contactsView ? contactsView.searchFocused : false })
   }
 
@@ -2263,6 +2285,8 @@ Panel {
     for (var key in values) entry[key] = values[key]
     root.settings = entry
     if (root.hostWidget && "settings" in root.hostWidget) root.hostWidget.settings = entry
+    // A demo is a preview: its layout lives in memory and never reaches shell.json.
+    if (phone && phone.demo) return
     if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
       root.bar.shell.updateEntryInline(root.moduleName, entry)
   }
@@ -2362,7 +2386,7 @@ Panel {
   function openMessagesView(threadId, typeHere, fresh) {
     // A tablet without a SIM (or a computer) has no text messages.
     if (device && can.sms !== true) {
-      if (phone) phone.report(Model.deviceLabel(device) + " has no text messages", false)
+      if (phone) phone.report(Model.deviceLabel(device) + " has no text messages", false, "The device has no text messages")
       return
     }
     replyingTo = ""
@@ -2814,6 +2838,26 @@ Panel {
       root.phone.readFeatures(String(root.device.id), true)
       return JSON.stringify({ notifications: root.sectionNotes.notifications, card: root.problemCard ? root.problemCard.problem.key : "", marks: root.marks })
     }
+    // Demo: this computer's Bluetooth and the viewed device's match in a
+    // state (ready, off, adapter, unpaired, unkept, dropped), for Calls here's
+    // row and the missed-call card. "waiting" (the phone not paired, the plugin
+    // waiting for it) and "failed" (a step did not work) also set the row's
+    // pending state; nothing real runs. Kept until `live`.
+    function demoBluetooth(kind: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      if (["ready", "off", "adapter", "unpaired", "unkept", "dropped", "waiting", "failed"].indexOf(kind) < 0) return "no state " + kind
+      var base = kind === "waiting" ? "unpaired" : kind === "failed" ? "unkept" : kind
+      root.phone.showDemoBluetooth(base)
+      if (root.device) {
+        var id = String(root.device.id)
+        var pend = kind === "waiting" ? { text: "Pair " + Model.deviceLabel(root.device) + " with this computer over Bluetooth", wait: true, waitFor: "bt:pair", failed: false, at: Date.now(), tried: "" }
+          : kind === "failed" ? { text: "That did not work", wait: false, failed: true, at: Date.now(), tried: "it could not keep the phone for calls" }
+          : null
+        root.phone.setPending(id, "callsHere", pend)
+      }
+      var row = root.device ? root.featureRowsFor(root.device).filter(function(r) { return r.key === "callsHere" })[0] : null
+      return JSON.stringify({ state: row ? row.state : "", detail: row ? row.detail : "", steps: row ? row.steps.map(function(s) { return s.label }) : [], pending: row ? row.pending : null, offer: root.callOffer })
+    }
     // Demo: sample failing checks on this computer, to look at the fixes and
     // the gear's dot (kept until `live`; a demo starts if none runs).
     function demoSetup(): string {
@@ -2837,7 +2881,7 @@ Panel {
     function screenInfo(): string { return root.screenInfo() }
     // From anywhere on the viewed device (#119): its page, as its row would
     // open it; what the page shows. demoReach: a made-up network (ready,
-    // setup, pick, none, isolated; demo only). reachAddress: an address as
+    // setup, pick, none, isolated, lost; demo only). reachAddress: an address as
     // typed and Entered on the page (demo only: nothing reaches KDE Connect).
     function reach(): string { if (root.device) root.openReach(String(root.device.id)); return root.reachInfo() }
     function reachInfo(): string { return root.reachInfo() }
@@ -2908,6 +2952,26 @@ Panel {
       root.phone.setupNetwork = "192.168.1.0/24"
       root.phone.searchedAt = 0
       return "ok"
+    }
+    // Demo only: one device of the demo away, and viewed (demo many: its
+    // second device, by id, nickname or name). The rest stay as they are.
+    function demoAwayOn(key: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      var d = root.phone.findDevice(key)
+      if (!d) return "no device " + key
+      if (!root.phone.showDemoAway(d.id)) return "no device " + key
+      root.phone.setupNetwork = "192.168.1.0/24"
+      root.phone.searchedAt = 0
+      if (root.opened) root.switchDevice(d.id); else root.phone.view(d.id)
+      return "ok"
+    }
+    // Demo only: Why? on the away card, as a click would (toggles); what the
+    // card shows.
+    function pressAwayWhy(): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      if (!root.device || root.device.reachable !== false) return "the viewed device is not away"
+      root.awayWhy = !root.awayWhy
+      return JSON.stringify({ why: root.awayWhy, lines: root.awayInfo.lines.concat(root.awayWhy ? root.awayInfo.why : []) })
     }
     // Reconnect on the viewed device, as its button would; what it shows.
     function reconnect(): string {
@@ -3004,7 +3068,14 @@ Panel {
     function pressCall(key: string): string {
       if (!root.phone || !root.phone.demo) return "demo only"
       root.callPress(key)
-      return JSON.stringify({ call: root.call, buttons: root.callButtons.map(function(b) { return b.key }), keypad: root.callKeypad })
+      return JSON.stringify({ call: root.call, buttons: root.callButtons.map(function(b) { return b.key }), keypad: root.callKeypad, offer: root.callOffer })
+    }
+    // Demo only: the missed-call offer's No thanks (none) or Open Calls here (open).
+    function pressCallOffer(key: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      if (key !== "none" && key !== "open") return "none or open"
+      root.callOfferPress(key)
+      return JSON.stringify({ offer: root.callOffer })
     }
     function closeCall(): string { if (root.phone) root.phone.closeCall(); return JSON.stringify(root.call) }
     // Demo only: Text back, without focusing the composer (scripted).
@@ -3038,7 +3109,15 @@ Panel {
     function move(dx: int, dy: int): string { keyCatcher.moveRequested(dx, dy); return JSON.stringify({ section: root.focusSection, settingsIndex: root.settingsIndex }) }
     function pressEscape(): string { keyCatcher.closeRequested(); return JSON.stringify({ messages: root.messagesOpen, contacts: root.contactsOpen, apps: root.appsOpen, open: root.opened }) }
     function pressKey(t: string): string { keyCatcher.textKey(t); return root.appsInfo() }
-    function pressEnter(): string { keyCatcher.activateRequested(); return root.appsInfo() }
+    // Never where Enter would focus a text field (a reply, the composer, a
+    // setting): keystrokes meant for another window would land in it.
+    function pressEnter(): string {
+      var focusesField = root.messagesOpen || root.contactsOpen || root.settingsOpen
+        || (root.mainView && root.focusSection === "notifications")
+      if (focusesField) return "refused: Enter would focus a text field here"
+      keyCatcher.activateRequested()
+      return root.appsInfo()
+    }
     function appsInfo(): string { return root.appsInfo() }
     // A feature's switch on the device page shown (as a click on it), and
     // what the main page then has of the screen.
@@ -3278,8 +3357,15 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      PointerGate { id: pointerGate }
+      HoverHandler { onPointChanged: pointerGate.heard(point.scenePosition) }
       // Shift+Enter on an app: it opens as Omarchy's pop-out. A shortcut,
       // so it comes before the catcher, whose Enter carries no modifiers.
+      Shortcut {
+        sequences: ["Shift+Delete"]
+        enabled: root.dismissAllKeyReady && !keyCatcher.blocked
+        onActivated: root.phone.dismissAll()
+      }
       Shortcut {
         sequences: ["Shift+Return", "Shift+Enter"]
         enabled: root.opened && !keyCatcher.blocked && root.cursorActive
@@ -3659,7 +3745,7 @@ Panel {
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 fontSize: Style.font.bodySmall
-                onHovered: function(on) { if (on && modelData.enabled) root.soundCursor = index }
+                onHovered: function(on) { if (on && modelData.enabled) root.hoverTake(function() { root.soundCursor = index }) }
                 onClicked: root.chooseSound(modelData.key)
               }
             }
@@ -3681,7 +3767,7 @@ Panel {
             spacing: Style.space(8)
             PanelActionButton {
               iconText: soundBox.shown && (soundBox.shown.muted || soundBox.shown.level <= 0.001) ? Model.GLYPH.volumeOff : Model.GLYPH.volume
-              tooltipText: soundBox.shown && soundBox.shown.muted ? "Unmute it here (m)" : "Mute it here (m)"
+              tooltipText: Model.keyTip(soundBox.shown && soundBox.shown.muted ? "Unmute it here" : "Mute it here", "mute")
               foreground: root.foreground
               fontFamily: root.fontFamily
               onClicked: root.soundMute()
@@ -4303,6 +4389,63 @@ Panel {
                   }
                 }
 
+                // A missed call while Calls here is not set up (#271): one
+                // line and its button under the buttons, which do not move.
+                // Its height is the button's, whatever it shows, and it
+                // folds away once Calls here is on or declined.
+                FoldBody {
+                  open: !!root.callOffer && callCard.showing
+                  motion: root.motion
+                  animate: root.settled
+                  RowLayout {
+                    id: offerRow
+                    width: parent.width
+                    spacing: Style.space(8)
+                    readonly property var offer: root.callOffer
+                    property var shown: null
+                    onOfferChanged: if (offer) shown = offer
+                    Component.onCompleted: if (offer) shown = offer
+                    readonly property bool working: !!root.phone && root.phone.isBusy("feature:callsHere")
+                    WaitRing {
+                      visible: !!offerRow.shown && offerRow.shown.waiting
+                      running: visible
+                      color: root.dim
+                      size: Math.round(Style.font.caption * 0.9)
+                      Layout.alignment: Qt.AlignVCenter
+                    }
+                    Text {
+                      Layout.fillWidth: true
+                      Layout.alignment: Qt.AlignVCenter
+                      textFormat: Text.PlainText
+                      elide: Text.ElideRight
+                      text: offerRow.shown ? offerRow.shown.text : ""
+                      color: offerRow.shown && offerRow.shown.kind === "failed" ? root.urgent : root.dim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                    Button {
+                      readonly property bool active: !!offerRow.shown && offerRow.shown.action !== ""
+                      Layout.maximumWidth: active ? implicitWidth : 0
+                      opacity: active ? 1 : 0
+                      enabled: active && !offerRow.working
+                      text: offerRow.working ? "Working…" : (offerRow.shown ? offerRow.shown.label : "")
+                      bordered: true
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                      fontSize: Style.font.caption
+                      onClicked: root.callOfferPress(offerRow.shown.action)
+                    }
+                    Button {
+                      text: "No thanks"
+                      tooltipText: "Turns Calls here off for " + Model.deviceLabel(root.callDevice)
+                      foreground: root.dim
+                      fontFamily: root.fontFamily
+                      fontSize: Style.font.caption
+                      onClicked: root.callOfferPress("none")
+                    }
+                  }
+                }
+
                 // A second call: waiting while this one goes on, or on hold.
                 RowLayout {
                   visible: callCard.onCall && !!callCard.shown.other
@@ -4398,7 +4541,7 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             visible: root.showMain
             iconText: Model.GLYPH.settings
-            tooltipText: root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings"
+            tooltipText: Model.keyTip(root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings", "settings")
             foreground: root.foreground
             fontFamily: root.fontFamily
             onClicked: root.openSettings()
@@ -4618,7 +4761,7 @@ Panel {
                   enabled: opacity > 0.5
                   Behavior on opacity { NumberAnimation { duration: (heroHover.hovered || root.editing ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                   iconText: root.editing ? Model.GLYPH.check : Model.GLYPH.edit
-                  tooltipText: root.editing ? "Done: keep the changes (Esc undoes them)" : "Edit this page"
+                  tooltipText: root.editing ? Model.keyTip("Done: keep the changes", "edit") + "; Esc undoes them" : Model.keyTip("Edit this page", "edit")
                   foreground: root.editing ? Color.accent : root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.toggleEditing()
@@ -4632,7 +4775,7 @@ Panel {
                   enabled: root.homeVisible
                   Behavior on opacity { NumberAnimation { duration: (root.homeVisible ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                   iconText: Model.GLYPH.home
-                  tooltipText: "Home (" + Model.HOME_KEY + ")"
+                  tooltipText: Model.keyTip("Home", "home")
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.goHome()
@@ -4640,7 +4783,7 @@ Panel {
                 PanelActionButton {
                   visible: !(root.showMain && root.manyDevices) && root.backVisible
                   iconText: root.showMain ? Model.GLYPH.settings : Model.GLYPH.back
-                  tooltipText: !root.showMain ? root.backTip : (root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings")
+                  tooltipText: !root.showMain ? Model.keyTip(root.backTip, "back") : Model.keyTip(root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings", "settings")
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.headerButton()
@@ -4976,13 +5119,13 @@ Panel {
                           required property var modelData
                           required property int index
                           iconText: modelData.glyph
-                          tooltipText: root.actionOn(modelData.key) ? modelData.label + " (open)" : modelData.label
+                          tooltipText: root.actionOn(modelData.key) ? modelData.label + " (open)" : Model.keyTip(modelData.label, modelData.key === "messages" ? "messages" : "")
                           size: Style.space(22)
                           foreground: root.actionOn(modelData.key) ? Color.accent : root.foreground
                           fontFamily: root.fontFamily
                           enabled: modelData.enabled === true
                           hasCursor: root.cursorActive && root.focusSection === "actions" && root.actionIndex === index
-                          onHovered: function(on) { if (on) { root.cursorActive = true; root.focusSection = "actions"; root.actionIndex = index } }
+                          onHovered: function(on) { if (on) root.hoverTake(function() { root.cursorActive = true; root.focusSection = "actions"; root.actionIndex = index }) }
                           onClicked: root.runAction(modelData.key)
                           GearDot { visible: root.marks.shortcuts[modelData.key] === true }
                         }
@@ -5196,7 +5339,7 @@ Panel {
                           foreground: root.foreground
                           fontFamily: root.fontFamily
                           onActivated: function(pop) { root.openApp(modelData, pop) }
-                          onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = index }
+                          onHovered: root.hoverTake(function() { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = index })
                         }
                       }
                       // Between the pinned and the recent ones, while both are there.
@@ -5226,7 +5369,7 @@ Panel {
                           foreground: root.foreground
                           fontFamily: root.fontFamily
                           onActivated: function(pop) { root.openApp(modelData, pop) }
-                          onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionRows.pinned.length + index }
+                          onHovered: root.hoverTake(function() { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionRows.pinned.length + index })
                         }
                       }
                       // All apps, always last: the same place whatever the row holds.
@@ -5243,7 +5386,7 @@ Panel {
                         foreground: root.foreground
                         fontFamily: root.fontFamily
                         onActivated: root.openAppsView()
-                        onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionApps.length }
+                        onHovered: root.hoverTake(function() { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionApps.length })
                       }
                     }
                   }
@@ -5284,7 +5427,7 @@ Panel {
                         foreground: root.foreground
                         fontFamily: root.fontFamily
                         onActivated: root.openAppsView()
-                        onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = 0 }
+                        onHovered: root.hoverTake(function() { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = 0 })
                       }
                     }
 
@@ -5312,7 +5455,7 @@ Panel {
                       foreground: root.foreground
                       fontFamily: root.fontFamily
                       onActivated: function(app, pop) { root.openApp(app, pop) }
-                      onHovered: function(i) { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = i === root.sectionRows.pinned.length ? root.sectionApps.length : i }
+                      onHovered: function(i) { root.hoverTake(function() { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = i === root.sectionRows.pinned.length ? root.sectionApps.length : i }) }
                       onReordered: function(a, b) { root.movePinned(a, b) }
                       onPinRequested: function(app, at) { root.pinAppAt(app, at) }
                       onUnpinRequested: function(app) { root.pinApp(app, false) }
@@ -5370,7 +5513,7 @@ Panel {
                           onPinToggled: root.pinApp(modelData, true)
                           canForget: true
                           onForgetRequested: root.forgetApp(modelData)
-                          onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = recentRow.base + index }
+                          onHovered: root.hoverTake(function() { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = recentRow.base + index })
                         }
                       }
                       // All apps ends this row only while nothing is pinned (else PINNED's).
@@ -5385,7 +5528,7 @@ Panel {
                         foreground: root.foreground
                         fontFamily: root.fontFamily
                         onActivated: root.openAppsView()
-                        onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionApps.length }
+                        onHovered: root.hoverTake(function() { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionApps.length })
                       }
                     }
                   }
@@ -5459,7 +5602,7 @@ Panel {
                       PanelActionButton {
                         anchors.verticalCenter: parent.verticalCenter
                         iconText: Model.GLYPH.left
-                        tooltipText: "Previous player"
+                        tooltipText: Model.keyTip("Previous player", "prevPlayer")
                         size: Style.space(22)
                         fontSize: Style.font.body
                         foreground: root.foreground
@@ -5496,7 +5639,7 @@ Panel {
                       PanelActionButton {
                         anchors.verticalCenter: parent.verticalCenter
                         iconText: Model.GLYPH.right
-                        tooltipText: "Next player"
+                        tooltipText: Model.keyTip("Next player", "nextPlayer")
                         size: Style.space(22)
                         fontSize: Style.font.body
                         foreground: root.foreground
@@ -5644,12 +5787,14 @@ Panel {
                     }
 
                     // Dismiss all: open, it fades in as the rows do; folded,
-                    // it fades out with them.
+                    // it fades out with them. Its room stays in the row while
+                    // any note can be dismissed, so the title and the summary
+                    // never move as it fades.
                     WaitButton {
                       id: notesDismissAll
                       readonly property bool shown: !root.isCollapsed("notifications") && root.dismissableNotes.length > 0
                       opacity: shown ? 1 : 0
-                      visible: opacity > 0
+                      visible: root.dismissableNotes.length > 0 || opacity > 0
                       Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (notesDismissAll.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                       Layout.alignment: Qt.AlignVCenter
                       // In the rows' ✕ column: a row's buttons sit inside its right margin.
@@ -5658,11 +5803,11 @@ Panel {
                       glyph: Model.GLYPH.clearAll
                       waiting: root.dismissingAll
                       motion: root.motion
-                      tooltipText: root.dismissingAll ? "Dismissing on " + Model.deviceLabel(root.device) : "Dismiss all on " + Model.deviceLabel(root.device)
+                      tooltipText: root.dismissingAll ? "Dismissing on " + Model.deviceLabel(root.device) : Model.keyTip("Dismiss all on " + Model.deviceLabel(root.device), "dismissAll")
                       foreground: root.foreground
                       hoverColor: root.urgent
                       fontFamily: root.fontFamily
-                      enabled: !!root.phone && !root.dismissingAll
+                      enabled: shown && !!root.phone && !root.dismissingAll
                       onClicked: root.phone.dismissAll()
                     }
                   }
@@ -6095,6 +6240,10 @@ Panel {
                 height: visible ? Style.space(600) : 0
                 sms: root.sms
                 bar: root.bar
+                hoverMovedTo: root.hoverMovedTo
+                contactsAsk: root.sectionNotes.contacts && root.sectionNotes.contacts.kind === "ask" ? root.sectionNotes.contacts : null
+                contactsWorking: !!root.phone && !!root.sectionNotes.contacts && root.phone.isBusy("feature:" + root.sectionNotes.contacts.key)
+                onAllowContacts: { var n = root.sectionNotes.contacts; if (n && n.row) root.featureAction(n.row, root.device) }
                 onThreadOpened: function(tid) { root.rememberThread(tid) }
                 onReported: function(text) { if (root.phone) root.phone.report(text, false) }
                 onUnreadToggled: root.toggleUnreadOnly()
@@ -6113,7 +6262,9 @@ Panel {
                 fontFamily: root.fontFamily
               }
 
-              // ---- Contacts, in place of everything above but the header ----
+              // ---- Contacts, in place of everything above but the header;
+              //      the ask for them is said here, above them ----
+              SectionNote { note: root.showContacts ? root.sectionNotes.contacts : null; width: parent.width }
               ContactsView {
                 id: contactsView
                 visible: root.showContacts
@@ -6121,6 +6272,9 @@ Panel {
                 height: visible ? Style.space(600) : 0
                 contacts: root.contacts
                 device: root.device
+                hoverMovedTo: root.hoverMovedTo
+                noted: !!root.sectionNotes.contacts
+                granted: root.contactsGranted
                 bar: root.bar
                 motion: root.motion
                 onReported: function(text) { if (root.phone) root.phone.report(text, false) }
@@ -6151,6 +6305,7 @@ Panel {
                 isWorking: function(app) { return root.appWorking(app) }
                 glide: root.cursorGlide
                 cursorActive: root.cursorActive
+                hoverTake: root.hoverTake
                 motion: root.motion
                 animate: root.settled
                 foreground: root.foreground
@@ -6246,7 +6401,7 @@ Panel {
                 onMoveRequested: function(key, delta) { root.moveShortcutKey(key, delta) }
                 onSectionMoveRequested: function(section, delta) { root.moveSectionKey(section, delta) }
                 onBarMoveRequested: function(key, delta) { root.moveBarIndicator(key, delta) }
-                onHovered: function(index) { root.cursorActive = true; root.settingsIndex = index }
+                onHovered: function(index) { root.hoverTake(function() { root.cursorActive = true; root.settingsIndex = index }) }
               }
 
             }
@@ -6299,7 +6454,7 @@ Panel {
       MouseArea {
         anchors.fill: parent
         hoverEnabled: true
-        onEntered: { root.cursorActive = true; root.focusSection = editBar.section }
+        onEntered: root.hoverTake(function() { root.cursorActive = true; root.focusSection = editBar.section })
         onClicked: root.toggleSectionShown(editBar.section)
       }
 
@@ -6565,7 +6720,6 @@ Panel {
     id: tile
     property var photo: ({})
     property int place: 0
-    readonly property string url: "file://" + encodeURI(String(photo.path || ""))
     hasCursor: false
     CursorStop { here: root.cursorActive && root.focusSection === "photos" && root.photoIndex === place; glide: root.cursorGlide }
     foreground: root.foreground
@@ -6635,12 +6789,6 @@ Panel {
         font.pixelSize: Style.font.bodySmall
       }
     }
-    // The file itself, for a drop into another window.
-    Drag.active: tileDrag.active
-    Drag.dragType: Drag.Automatic
-    Drag.supportedActions: Qt.CopyAction
-    Drag.mimeData: ({ "text/uri-list": tile.url })
-    DragHandler { id: tileDrag; target: null; enabled: !tile.photo.demo }
     // Hover without taking it from the buttons: ↗ shows only on this tile.
     HoverHandler { id: tileHover }
 
@@ -6649,7 +6797,7 @@ Panel {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
-      onEntered: { root.cursorActive = true; root.focusSection = "photos"; root.photoIndex = tile.place }
+      onEntered: root.hoverTake(function() { root.cursorActive = true; root.focusSection = "photos"; root.photoIndex = tile.place })
       onClicked: root.openPhoto(tile.photo)
     }
     // Save and copy read the file over the network: each turns into the
@@ -6685,7 +6833,7 @@ Panel {
     PanelToolTip {
       visible: tileMouse.containsMouse
       text: (tile.photo.album || "Photo") + (tile.photo.video ? " · video" : "") + " · " + Model.threadTime(tile.photo.at, Date.now())
-        + (tile.photo.video ? " · click to play" : " · click to open") + ", drag into a window"
+        + (tile.photo.video ? " · click to play" : " · click to open")
     }
   }
 
@@ -6706,7 +6854,7 @@ Panel {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
-      onEntered: { root.cursorActive = true; root.focusSection = "received"; root.receivedIndex = rrow.place }
+      onEntered: root.hoverTake(function() { root.cursorActive = true; root.focusSection = "received"; root.receivedIndex = rrow.place })
       onClicked: root.openReceived(rrow.entry)
     }
     PanelToolTip {
@@ -6772,7 +6920,7 @@ Panel {
       }
       PanelActionButton {
         iconText: Model.GLYPH.close
-        tooltipText: "Forget it here (the file stays)"
+        tooltipText: Model.keyTip("Forget it here, the file stays", "forget")
         foreground: root.foreground
         fontFamily: root.fontFamily
         onClicked: if (root.phone) root.phone.dismissReceived(rrow.entry)
@@ -6872,7 +7020,7 @@ Panel {
       property real startX: 0
       property real dx: 0
       cursorShape: root.players.length > 1 ? (pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor) : Qt.ArrowCursor
-      onEntered: { root.cursorActive = true; root.focusSection = "media" }
+      onEntered: root.hoverTake(function() { root.cursorActive = true; root.focusSection = "media" })
       onPressed: function(mouse) { startX = mapToItem(null, mouse.x, 0).x; dx = 0 }
       onPositionChanged: function(mouse) {
         if (!pressed || root.players.length < 2) return
@@ -6975,7 +7123,7 @@ Panel {
                 : (index === 2 ? card.player.canGoNext : card.player.canTogglePlaying))
               // Enter plays/pauses, so the keyboard cursor sits on that button.
               hasCursor: index === 1 && root.cursorActive && root.focusSection === "media"
-              onHovered: function(on) { if (on) { root.cursorActive = true; root.focusSection = "media" } }
+              onHovered: function(on) { if (on) root.hoverTake(function() { root.cursorActive = true; root.focusSection = "media" }) }
               onClicked: {
                 if (index === 1) card.togglePlaying()
                 else if (root.phone) root.phone.mediaAction(root.mediaKey(index), card.player)
@@ -7097,7 +7245,7 @@ Panel {
       hoverEnabled: true
       enabled: tile.action.enabled === true
       cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-      onEntered: { root.cursorActive = true; root.focusSection = "actions"; root.actionIndex = tile.tileIndex }
+      onEntered: root.hoverTake(function() { root.cursorActive = true; root.focusSection = "actions"; root.actionIndex = tile.tileIndex })
       onClicked: root.runAction(tile.action.key)
     }
 
@@ -7125,7 +7273,7 @@ Panel {
       anchors.margins: Style.space(2)
       size: Style.space(18)
       iconText: ({ phone: Model.GLYPH.phone, both: Model.GLYPH.devices })[root.screenSoundNow] || Model.GLYPH.volume
-      tooltipText: "Its sound plays " + ({ phone: "on the device", both: "here and on the device" }[root.screenSoundNow] || "here") + " · change it (v)"
+      tooltipText: Model.keyTip("Its sound plays " + ({ phone: "on the device", both: "here and on the device" }[root.screenSoundNow] || "here") + " · change it", "sound")
       foreground: root.foreground
       fontFamily: root.fontFamily
       onClicked: root.openSoundCard(null)
@@ -7133,7 +7281,7 @@ Panel {
 
     PanelToolTip {
       visible: tileMouse.containsMouse && (tile.action.hint || "") !== ""
-      text: tile.isOn ? "Its screen is open: click to bring it forward" : (tile.action.hint || "")
+      text: tile.isOn ? "Its screen is open: click to bring it forward" : Model.keyTip(tile.action.hint || "", tile.action.key === "messages" ? "messages" : "")
       fontFamily: root.fontFamily
     }
   }
@@ -7326,7 +7474,7 @@ Panel {
       hoverEnabled: true
       acceptedButtons: row.isText || row.opensApp ? Qt.LeftButton : Qt.NoButton
       cursorShape: row.isText || row.opensApp ? Qt.PointingHandCursor : Qt.ArrowCursor
-      onEntered: { root.cursorActive = true; root.focusSection = "notifications"; root.notifIndex = row.rowIndex }
+      onEntered: root.hoverTake(function() { root.cursorActive = true; root.focusSection = "notifications"; root.notifIndex = row.rowIndex })
       onClicked: {
         if (row.isText) root.openNotificationConversation(row.note)
         else if (row.opensApp) root.openApp(row.app)
@@ -7599,7 +7747,7 @@ Panel {
         PanelActionButton {
           visible: row.isText
           iconText: Model.GLYPH.messages
-          tooltipText: "Open the conversation (o)"
+          tooltipText: Model.keyTip("Open the conversation", "open")
           foreground: root.foreground
           fontFamily: root.fontFamily
           onClicked: root.openNotificationConversation(row.note)
@@ -7611,7 +7759,7 @@ Panel {
           glyph: Model.GLYPH.window
           waiting: root.appWorking(row.app)
           motion: root.motion
-          tooltipText: "Open " + (row.app ? row.app.name : "") + " in a window (o)"
+          tooltipText: Model.keyTip("Open " + (row.app ? row.app.name : "") + " in a window", "open")
           foreground: root.foreground
           fontFamily: root.fontFamily
           onClicked: root.openApp(row.app)
@@ -7623,7 +7771,7 @@ Panel {
           glyph: Model.GLYPH.reply
           waiting: sending
           motion: root.motion
-          tooltipText: sending ? "Sending the reply" : "Reply"
+          tooltipText: sending ? "Sending the reply" : Model.keyTip("Reply", "reply")
           foreground: root.foreground
           fontFamily: root.fontFamily
           enabled: !sending
@@ -7636,7 +7784,7 @@ Panel {
           glyph: Model.GLYPH.close
           waiting: dismissing
           motion: root.motion
-          tooltipText: dismissing ? "Dismissing on " + Model.deviceLabel(root.device) : "Dismiss on " + Model.deviceLabel(root.device)
+          tooltipText: dismissing ? "Dismissing on " + Model.deviceLabel(root.device) : Model.keyTip("Dismiss on " + Model.deviceLabel(root.device), "dismiss")
           foreground: root.foreground
           hoverColor: root.urgent
           fontFamily: root.fontFamily

@@ -27,7 +27,7 @@ files and the clipboard.
   **[shortcuts](docs/use/shortcuts.md)** to ring it, send files, a link or
   the clipboard.
 - **[Gallery](docs/use/gallery.md)** and **[received files](docs/use/received.md)**:
-  its newest photos and videos, and what it sent you, a drag away.
+  its newest photos and videos, and what it sent you, a click away.
 - **[Several devices](docs/use/devices.md)**: a tab and a pill each, with
   its own news; **[make it yours](docs/use/edit.md)** on the page itself.
 - **[From anywhere](docs/use/anywhere.md)**: away from home, through
@@ -104,11 +104,11 @@ needs Wireless debugging, which you pair and can revoke:
 
 ## Testing the plugin
 
-Changes are tried in a hidden rig: a second shell in its own compositor and a
-small Android emulator for the phone, so your desktop and your phone stay
-untouched. `dev/rig up`, then `dev/rig show` to look at it, `dev/rig down` when
-done. Needs `labwc`, `wtype`, `socat` and an Android SDK with KVM;
-[the rig](docs/internals/development.md#the-test-rig).
+Changes are tried in a sandbox: a container with no home, no network and no
+way to your desktop or phone, running a hidden shell and a small Android
+emulator for the phone. `dev/sandbox dev start`, then `dev/sandbox dev sync`
+and `dev/sandbox dev up`; screenshots and recordings come out as data. Needs
+`podman`, KVM and a GPU render node; [the sandbox](docs/internals/development.md#the-sandbox).
 
 ## Built on
 

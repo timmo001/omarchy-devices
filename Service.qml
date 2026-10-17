@@ -63,6 +63,8 @@ Item {
     demoChecks = false
     demoNetworkKind = ""
     demoFeature = ""
+    if (demoBtKind !== "") Object.keys(featurePending).forEach(function(k) { if (k.indexOf("demo") === 0 && k.slice(-10) === ":callsHere") setPending(k.split(":")[0], "callsHere", null) })
+    demoBtKind = ""
     runDoctor()
   }
   // ---- Many devices (docs/design/multi-device.md) ----
@@ -227,10 +229,12 @@ Item {
   }
   onCallsToKeepChanged: if (!demo) callsToKeep.forEach(function(id) { Quickshell.execDetached([root.bridge, "call", "keep-on-phone", id]) })
   // The device whose call's audio is here now: its voice to this computer's
-  // output, the microphone to it (kdeconnect-bridge call-audio).
+  // output, the microphone to it (kdeconnect-bridge call-audio). Never while
+  // it only rings: the link can come up before Answer, and the microphone
+  // would open to a call nobody answered.
   readonly property string callAudioDevice: {
     if (demo) return ""
-    for (var id in calls) if (calls[id].here && calls[id].audio === "here" && calls[id].state !== "ended") return id
+    for (var id in calls) if (calls[id].here && calls[id].audio === "here" && (calls[id].state === "active" || calls[id].state === "held" || calls[id].state === "dialing")) return id
     return ""
   }
   onCallAudioDeviceChanged: {
@@ -332,6 +336,46 @@ Item {
     callClosed = ({})
     callMuted = ({})
     snapshot = copy
+    if (demoBtKind !== "") showDemoBluetooth(demoBtKind)
+  }
+  // Demo: this computer's Bluetooth and the viewed (else first) device's
+  // match in a state (Model.demoBluetoothState); kept for the demo calls
+  // that follow, until `live`.
+  property string demoBtKind: ""
+  function showDemoBluetooth(kind) {
+    if (!demo) return false
+    var copy = JSON.parse(JSON.stringify(snapshot || {}))
+    var id = device ? String(device.id) : ""
+    var d = null
+    ;(copy.devices || []).forEach(function(x) { if (String(x.id) === id) d = x })
+    if (!d) d = Model.pickDevice(copy, "")
+    if (!d) return false
+    var st = Model.demoBluetoothState(kind, d.name)
+    copy.bluetooth = st.bluetooth
+    if (st.handsfree) d.handsfree = Object.assign({}, st.handsfree, { calls: (d.handsfree && d.handsfree.calls) || [], ended: (d.handsfree && d.handsfree.ended) || null })
+    else delete d.handsfree
+    demoBtKind = kind === "ready" ? "" : kind
+    snapshot = copy
+    return true
+  }
+  // Demo only: one device of the demo, away (last seen 12 minutes ago on
+  // this network), the others as they are. False when the demo has no such
+  // device.
+  function showDemoAway(id) {
+    if (!demo) return false
+    var copy = JSON.parse(JSON.stringify(snapshot || {}))
+    var list = copy.devices || []
+    var hit = false
+    for (var i = 0; i < list.length; i++) {
+      if (String(list[i].id) !== String(id)) continue
+      list[i].reachable = false
+      list[i].links = []
+      list[i].lastSeen = { link: "LAN", address: "192.168.1.50", at: Date.now() - 12 * 60000 }
+      if (list[i].handsfree) list[i].handsfree.connected = false
+      hit = true
+    }
+    if (hit) snapshot = copy
+    return hit
   }
   readonly property int deviceIndex: {
     for (var i = 0; i < ordered.length; i++) if (device && ordered[i].id === device.id) return i
@@ -539,14 +583,20 @@ Item {
   // Panels open right now (one per monitor can be); kept by the panels.
   property int openPanels: 0
 
-  function report(text, failed) {
+  // `osd` is the line for the on-screen display, whose command line any local
+  // user reads: a text with a value the device sent (its name, a file's, an
+  // app's) passes one without it; omitted, the text is a literal; "" says
+  // only that it ended (Model.osdLine).
+  function report(text, failed, osd) {
     actionStatus = text
     actionFailed = failed
     statusTimer.restart()
     // Nobody is looking at a panel: say it with Omarchy's on-screen display.
     // The OSD takes any glyph as its icon: the device's own, or an alert.
-    if (text !== "" && openPanels === 0)
-      Quickshell.execDetached(["omarchy-osd", "-i", failed ? "\u{F0026}" : Model.deviceGlyph(device), "-m", text, "-d", failed ? "3000" : "1800"])
+    if (text !== "" && openPanels === 0) {
+      var line = Model.osdLine(text, osd, failed)
+      Quickshell.execDetached(["omarchy-osd", "-i", failed ? "\u{F0026}" : Model.deviceGlyph(device), "-m", line, "-d", failed ? "3000" : "1800"])
+    }
   }
 
   // `wait` keeps the click waiting past the bridge, until the device's
@@ -570,7 +620,7 @@ Item {
   }
 
   // ---- Waiting on the device ----
-  // key -> { kind, device, note, before, until, fail, said }: clicks the bridge has
+  // key -> { kind, device, note, before, until, fail, failOsd, said, saidOsd }: clicks the bridge has
   // passed on and the device has not answered yet. The clicked control shows
   // the waiting ring meanwhile (isBusy); a wait that runs out says so.
   property var waits: ({})
@@ -578,7 +628,7 @@ Item {
   function startWait(key, wait) {
     var limit = Model.waitLimit(wait.kind, device ? device.name : "")
     var next = Object.assign({}, waits)
-    next[key] = Object.assign({ until: Date.now() + limit.ms, fail: limit.fail }, wait)
+    next[key] = Object.assign({ until: Date.now() + limit.ms, fail: limit.fail, failOsd: limit.failOsd }, wait)
     waits = next
     checkWaits()
   }
@@ -593,13 +643,13 @@ Item {
         : Model.answered(w.kind, snapshot, w.device, w.note, w.before)
       if (done) {
         changed = true
-        if (w.said && !Model.shownInPlace(w.kind)) report(w.said, false)
+        if (w.said && !Model.shownInPlace(w.kind)) report(w.said, false, w.saidOsd || "")
         continue
       }
       if (now > w.until) {
         changed = true
-        if (w.fail !== "") report(w.fail, true)
-        else if (w.said && !Model.shownInPlace(w.kind)) report(w.said, false)
+        if (w.fail !== "") report(w.fail, true, w.failOsd)
+        else if (w.said && !Model.shownInPlace(w.kind)) report(w.said, false, w.saidOsd || "")
         continue
       }
       next[key] = w
@@ -668,7 +718,8 @@ Item {
   function launchAgent(problems) {
     // No default agent yet: Omarchy's own choice of one, first.
     if (agentName === "") { silentComponent.createObject(root, { command: ["omarchy", "agent", "--pick"] }).running = true; return }
-    var prompt = Model.aiPrompt(problems, pluginFolder)
+    var names = ((snapshot && snapshot.devices) || []).map(function(d) { return Model.deviceLabel(d) })
+    var prompt = Model.aiPrompt(problems, pluginFolder, names)
     silentComponent.createObject(root, { command: ["omarchy", "agent", "prompt", prompt] }).running = true
   }
 
@@ -908,7 +959,7 @@ Item {
           var plan = null
           try { plan = JSON.parse(text) } catch (e) {}
           var then = describeProc.then
-          if (!plan || !plan.hash) { root.report(plan && plan.error ? plan.error : "Could not tell what it would do", true); if (then) then(2) }
+          if (!plan || !plan.hash) { root.report(plan && plan.error ? plan.error : "Could not tell what it would do", true, plan && plan.error ? "" : "Could not tell what it would do"); if (then) then(2) }
           // Nothing that needs root (all installed): no password, no card.
           else if ((plan.commands || []).length === 0) root.runRoot(plan, then)
           // Every panel closed while it was described: nothing asked later.
@@ -1138,11 +1189,11 @@ Item {
         var key = "screen:" + id + ":" + app.package
         if (status && status.state === "ready" && !demo) {
           // Locked: the bridge wakes it and opens the app once it is unlocked.
-          if (status.locked) report("Unlock " + Model.deviceLabel(findDevice(id)) + " to open " + app.name + ": it opens as soon as you do", false)
+          if (status.locked) report("Unlock " + Model.deviceLabel(findDevice(id)) + " to open " + app.name + ": it opens as soon as you do", false, "Unlock the device to open the app: it opens as soon as you do")
           launchScreen(id, app.package, app.name, false, null, false, app.sound, app.pop)
           return
         }
-        if (status && status.state === "ready") { setBusy(key, false); report("Demo: " + app.name + " would open " + (app.pop ? "popped out" : "in a window") + " here", false); return }
+        if (status && status.state === "ready") { setBusy(key, false); report("Demo: " + app.name + " would open " + (app.pop ? "popped out" : "in a window") + " here", false, "Demo: the app would open here"); return }
         setBusy(key, false)
         screenSetupNeeded(String(id), app)
         return
@@ -1228,7 +1279,7 @@ Item {
     var proc = actionComponent.createObject(root, { key: key, command: cmd, quietSuccess: true })
     // Connecting takes a moment: said by the card or the tile in a panel;
     // with none open (a key), by Omarchy's on-screen display.
-    if (openPanels === 0) report("Connecting to " + Model.deviceLabel(findDevice(id)) + "…", false)
+    if (openPanels === 0) report("Connecting to " + Model.deviceLabel(findDevice(id)) + "…", false, "Connecting to the device…")
     proc.exited.connect(function(code) {
       if (code === 0) {
         // Open already: brought forward, playing where it did.
@@ -1395,7 +1446,7 @@ Item {
     rememberSound(id, key, sound)
     if (demo) {
       noteWindowSound(id, key, sound)
-      report("Demo: " + (label || "the screen") + " would open again with its sound " + ({ here: "here", phone: "on the phone", both: "here and on the phone" })[sound], false)
+      report("Demo: " + (label || "the screen") + " would open again with its sound " + ({ here: "here", phone: "on the phone", both: "here and on the phone" })[sound], false, "Demo: the window would open again with its sound changed")
       return
     }
     setBusy(busyKey, true)
@@ -1917,16 +1968,36 @@ Item {
       id: artProc
       property string url: ""
       property string player: ""
+      property bool streamed: false
+      property bool exited: false
+      property bool released: false
+      // The player's slot frees once, when the process has ended, whether it
+      // ran or never started.
+      function release() {
+        if (released) return
+        released = true
+        delete root.artRunning[player]
+        root.artActive -= 1
+        root.nextArt()
+      }
+      onExited: {
+        exited = true
+        release()
+        if (streamed) destroy()
+        else lateDestroy.start()
+      }
+      property Timer lateDestroy: Timer {
+        interval: 2000
+        onTriggered: artProc.destroy()
+      }
       stdout: StdioCollector {
         onStreamFinished: {
           var path = String(text || "").trim()
           var next = Object.assign({}, root.safeArt)
           next[artProc.url] = path !== "" ? "file://" + encodeURI(path) : ""
           root.safeArt = next
-          delete root.artRunning[artProc.player]
-          root.artActive -= 1
-          root.nextArt()
-          artProc.destroy()
+          artProc.streamed = true
+          if (artProc.exited) artProc.destroy()
         }
       }
     }
@@ -1948,13 +2019,14 @@ Item {
     Quickshell.execDetached(["uwsm-app", "--", "nautilus", "--select", Model.fileUri(path)])
   }
 
-  // The file on the clipboard (an image as image data).
+  // A file on the device on the clipboard: copied here first, a picture as the
+  // sandbox's JPEG (the bridge's gate), anything else as a file here.
   function copyFile(path) {
     if (demo) { report("Copied", false); return }
     var key = "copy:" + String(path)
     if (isBusy(key)) return
     setBusy(key, true)
-    var proc = actionComponent.createObject(root, { key: key, command: [bridge, "copy-file", path] })
+    var proc = actionComponent.createObject(root, { key: key, command: [bridge, "copy-file", String(path), "--local"] })
     proc.running = true
   }
 
@@ -1975,24 +2047,27 @@ Item {
       stdinEnabled: hasInput
       onStarted: if (proc.hasInput) { write(proc.input); proc.input = ""; proc.stdinEnabled = false }
 
+      environment: ({ DEVICES_OSD_LINE: "1" })
       stdout: StdioCollector { id: procOut }
       stderr: StdioCollector { id: procErr }
 
       function finish() {
-        var out = String(procOut.text || "").trim()
-        var err = String(procErr.text || "").trim()
+        var o = Model.splitOsd(procOut.text)
+        var e = Model.splitOsd(procErr.text)
+        var out = o.text
+        var err = e.text
         // Waiting starts before busy ends, so the ring does not blink between.
         // Its line waits too: "Dismissed" shows when the notification goes.
         if (proc.exitCode === 0 && proc.wait) {
-          root.startWait(proc.key, Object.assign({ said: out }, proc.wait))
+          root.startWait(proc.key, Object.assign({ said: out, saidOsd: o.osd }, proc.wait))
           root.setBusy(proc.key, false)
           proc.destroy()
           return
         }
         root.setBusy(proc.key, false)
-        if (proc.exitCode === 0) { if (!proc.quietSuccess) root.report(out, false) }
-        else if (proc.exitCode === 1) root.report(err || out || "Cancelled", false)
-        else root.report(err || out || "That did not work", true)
+        if (proc.exitCode === 0) { if (!proc.quietSuccess) root.report(out, false, o.osd) }
+        else if (proc.exitCode === 1) root.report(err || out || "Cancelled", false, err ? e.osd : out ? o.osd : "Cancelled")
+        else root.report(err || out || "That did not work", true, err ? e.osd : out ? o.osd : "That did not work")
         proc.destroy()
       }
 

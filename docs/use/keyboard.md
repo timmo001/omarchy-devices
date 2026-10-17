@@ -15,9 +15,11 @@ field, so a stray keystroke never becomes a sent text.
 | Esc · `0` | Back to where you came from, one step at a time; then close · Home (the main page, from two pages deep) |
 | `c` | Fold the section under the cursor |
 | `r` · `x` · `e` · `o` | Reply · dismiss (a notification or a received file) · show all · open its app |
+| `Shift+Delete` | Dismiss all notifications (cursor in Notifications) |
 | `[` `]` · `,` `.` · `-` `=` | Skip · seek 10 s · volume |
 | `m` · `a` · `s` · `E` | Messages · all apps · Settings · edit the page |
 | `/` · `u` · `n` · `i` · `p` | Search · unread · new message · reply · pin |
+| `v` | Where an open app's sound plays |
 | `r` | Refresh (Contacts) |
 | `1`–`9` · `Shift+H` `Shift+L` | Switch device · previous · next device, or move a pinned app |
 | `Shift+K` `Shift+J` | Move a section, a device, a shortcut |

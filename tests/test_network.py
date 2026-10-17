@@ -9,6 +9,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -16,6 +17,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BRIDGE = os.path.join(HERE, "..", "bin", "kdeconnect-bridge")
@@ -35,9 +37,9 @@ TAILSCALE = json.dumps({
     "BackendState": "Running",
     "Self": {"HostName": "laptop", "TailscaleIPs": ["100.64.0.1", "fd7a::1"]},
     "Peer": {
-        "k1": {"HostName": "pixel-8", "DNSName": "pixel-8.tail0000.ts.net.", "OS": "android",
+        "k1": {"ID": "n111", "HostName": "pixel-8", "DNSName": "pixel-8.tail0000.ts.net.", "OS": "android",
                "TailscaleIPs": ["100.101.102.103", "fd7a::2"], "Online": True},
-        "k2": {"HostName": "desk", "DNSName": "desk.tail0000.ts.net.", "OS": "linux",
+        "k2": {"ID": "n222", "HostName": "desk", "DNSName": "desk.tail0000.ts.net.", "OS": "linux",
                "TailscaleIPs": ["100.101.102.110"], "Online": False},
     },
 })
@@ -92,19 +94,34 @@ class Firewall(unittest.TestCase):
 
     def test_the_plan_opens_private_networks_and_meshes_only_where_closed(self):
         rules = bridge.kde_rules(RULES)
-        out = bridge.firewall_rules(rules, "192.168.1.0/24", ["tailscale0", "nordlynx"])
+        out = bridge.firewall_rules(rules, ["tailscale0", "nordlynx"])
         self.assertTrue(all("0.0.0.0/0" not in r and " any port " in r for r in out), "never to everyone")
         self.assertEqual(sum("from 192.168.0.0/16" in r for r in out), 2, "the private range around this network, both protocols")
         self.assertEqual(sum("from 10.0.0.0/8" in r for r in out), 2, "a deny rule does not count as open")
         self.assertFalse(any("tailscale0" in r for r in out), "open already")
         self.assertEqual(sum("in on nordlynx" in r for r in out), 2)
 
-    def test_a_network_outside_the_private_ranges_is_added_as_itself(self):
-        out = bridge.firewall_rules([], "100.64.5.0/24", [])
-        self.assertEqual(sum("from 100.64.5.0/24" in r for r in out), 2)
+    def test_the_sources_are_the_private_ranges_whatever_network_this_is(self):
+        # A public /16, a /1 and a /0 (everyone) as the default route's network.
+        for net in ("141.20.0.0/16", "0.0.0.0/1", "0.0.0.0/0", "100.64.5.0/24"):
+            with mock.patch.object(bridge, "local_network", lambda net=net: net):
+                for out in (bridge.firewall_rules([], ["tailscale0"]),
+                            bridge.root_plan("firewall", rules=[], ifaces=["tailscale0"])["commands"][0][-1].split(" && ")):
+                    sources = {m.group(1) for r in out for m in [re.search(r" from (\S+) to ", r)] if m}
+                    self.assertEqual(sources - set(bridge.PRIVATE_LANS), set(), net)
+                    self.assertFalse(any(re.search(r"(?<![\d.])0\.0\.0\.0", r) for r in out), net)
+
+    def test_a_network_outside_the_private_ranges_is_not_a_fault(self):
+        for net in ("141.20.0.0/16", "0.0.0.0/0", "100.64.5.0/24"):
+            with mock.patch.object(bridge, "local_network", lambda net=net: net), \
+                    mock.patch("builtins.open", mock.mock_open(read_data="ENABLED=yes\n")):
+                self.assertTrue(bridge.firewall_state()["allowed"], net)
+        with mock.patch.object(bridge, "local_network", lambda: "192.168.5.0/24"), \
+                mock.patch("builtins.open", mock.mock_open(read_data="ENABLED=yes\n")):
+            self.assertFalse(bridge.firewall_state()["allowed"], "a home network still needs its rule")
 
     def test_the_firewall_rules_as_written(self):
-        plan = bridge.root_plan("firewall", lan="192.168.5.0/24", rules=[], ifaces=["tailscale0"])
+        plan = bridge.root_plan("firewall", rules=[], ifaces=["tailscale0"])
         self.assertEqual(len(plan["actions"]), 8, "three private ranges and Tailscale, each TCP and UDP")
         self.assertIn("from private networks (home, office) and from Tailscale, never from everyone", plan["why"])
         self.assertTrue(all(a.startswith("Add the firewall rule: ufw allow ") for a in plan["actions"]))
@@ -112,7 +129,7 @@ class Firewall(unittest.TestCase):
 
     def test_nothing_to_open_runs_nothing(self):
         everything = [{"proto": "any", "src": c, "iface": ""} for c in bridge.PRIVATE_LANS]
-        plan = bridge.root_plan("firewall", lan="192.168.5.0/24", rules=everything, ifaces=[])
+        plan = bridge.root_plan("firewall", rules=everything, ifaces=[])
         self.assertEqual(plan["commands"], [])
         self.assertIn("Nothing to change", plan["actions"][0])
 
@@ -131,7 +148,7 @@ class Meshes(unittest.TestCase):
     def test_tailscale_status(self):
         m = bridge.parse_tailscale(TAILSCALE)
         self.assertEqual((m["on"], m["address"]), (True, "100.64.0.1"))
-        self.assertEqual(m["peers"][0], {"name": "pixel-8", "host": "pixel-8", "os": "android", "address": "100.101.102.103", "online": True})
+        self.assertEqual(m["peers"][0], {"name": "pixel-8", "host": "pixel-8", "key": "n111", "os": "android", "address": "100.101.102.103", "online": True})
         self.assertIsNone(bridge.parse_tailscale("failed to connect to local tailscaled"))
         self.assertFalse(bridge.parse_tailscale(json.dumps({"BackendState": "NeedsLogin"}))["on"])
 
@@ -174,12 +191,24 @@ class Matching(unittest.TestCase):
         peer, how = bridge.match_peer({"name": "Anything"}, self.meshes, sure=["100.70.0.5"])
         self.assertEqual((peer["name"], peer["mesh"], how), ("work-phone", "meshnet", "address"))
 
-    def test_remembered_then_by_name(self):
-        peer, how = bridge.match_peer({"name": "Phone"}, self.meshes, {"mesh": "tailscale", "peer": "pixel-8"})
+    def test_remembered_by_its_key_then_by_name(self):
+        peer, how = bridge.match_peer({"name": "Phone"}, self.meshes, {"mesh": "tailscale", "peer": "pixel-8", "peerKey": "n111"})
         self.assertEqual((peer["address"], how), ("100.101.102.103", "remembered"))
+        peer, how = bridge.match_peer({"name": "Phone"}, self.meshes, {"mesh": "meshnet", "peerKey": "def"})
+        self.assertEqual((peer["address"], how), ("100.70.0.5", "remembered"), "a Meshnet peer by its public key")
+        peer, how = bridge.match_peer({"name": "Phone"}, self.meshes, {"mesh": "tailscale", "address": "100.101.102.103"})
+        self.assertEqual((peer["name"], how), ("pixel-8", "remembered"), "a record without a key: the address the mesh gave")
         peer, how = bridge.match_peer({"name": "Pixel 8"}, self.meshes)
         self.assertEqual((peer["address"], how), ("100.101.102.103", "name"), "case and punctuation aside")
         self.assertEqual(bridge.match_peer({"name": "Galaxy"}, self.meshes), (None, ""))
+
+    def test_a_peer_renamed_to_the_remembered_name_is_not_matched(self):
+        record = {"mesh": "tailscale", "peer": "pixel-8", "peerKey": "n111", "address": "100.101.102.103"}
+        renamed = [{"mesh": "tailscale", "label": "Tailscale", "on": True,
+                    "peers": [{"name": "pixel-8", "host": "other", "key": "n999", "os": "linux", "address": "100.64.0.9", "online": True}]}]
+        self.assertEqual(bridge.match_peer({"name": "Galaxy"}, renamed, record), (None, ""))
+        self.assertEqual(bridge.match_peer({"name": "Galaxy"}, renamed, {"mesh": "tailscale", "peer": "pixel-8"}), (None, ""),
+                         "a name alone is not remembered")
 
     def test_two_peers_with_its_name_is_no_match(self):
         twins = [{"mesh": "tailscale", "label": "Tailscale", "on": True,
@@ -251,7 +280,7 @@ class Reach(unittest.TestCase):
         self.assertEqual(bridge.reach("p1", conn=object(), meshes=self.meshes), bridge.EXIT_OK)
         self.assertEqual(d.custom, ["10.0.0.5", "100.101.102.103"], "the user's own stays")
         self.assertIn("forceOnNetworkChange", d.calls)
-        self.assertEqual(bridge.network_record("p1"), {"address": "100.101.102.103", "mesh": "tailscale", "peer": "pixel-8"})
+        self.assertEqual(bridge.network_record("p1"), {"address": "100.101.102.103", "mesh": "tailscale", "peer": "pixel-8", "peerKey": "n111"})
 
     def test_an_address_that_changed_replaces_the_one_given_before(self):
         d = self.use(FakeDaemon(["10.0.0.5", "100.101.102.99"]))

@@ -26,6 +26,10 @@ Item {
   property var contacts: null
   property var device: null
   property var bar: null
+  // The page's note (an ask or a problem, drawn above this view) says why
+  // there is nothing; granted: adb read the permission as given.
+  property bool noted: false
+  property bool granted: false
   property color foreground: Color.foreground
   property color urgent: Color.urgent
   property string fontFamily: Style.font.family
@@ -173,17 +177,16 @@ Item {
   NumberAnimation { id: rowGlide; target: rowList; property: "contentY"; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
   NumberAnimation { id: detailGlide; target: detailList; property: "contentY"; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
 
-  // Where the pointer last was on screen, so a row sliding under a still
-  // pointer (the keys scrolled the list) is told apart from the pointer
-  // moving onto it.
-  property point lastPointer: Qt.point(-1, -1)
+  // Whether the pointer moved to where this area hears it (the panel's
+  // PointerGate): a row that slides under a still pointer (the keys scrolled
+  // the list, suggestions appeared) does not take the cursor, whatever the
+  // pointer touched last.
+  property var hoverMovedTo: function(p) { return true }
+  function pointerMoved(area) { return hoverMovedTo(area.mapToItem(null, area.mouseX, area.mouseY)) }
   // The cursor last moved by the pointer: the highlight lands at once.
   property bool cursorByPointer: false
   function pointerAt(area, index) {
-    var g = area.mapToGlobal(area.mouseX, area.mouseY)
-    var moved = Math.abs(g.x - lastPointer.x) > 0.5 || Math.abs(g.y - lastPointer.y) > 0.5
-    lastPointer = Qt.point(g.x, g.y)
-    if (!moved) return
+    if (!pointerMoved(area)) return
     cursorByPointer = true
     cursorActive = true
     rowCursor = index
@@ -226,20 +229,10 @@ Item {
     return false
   }
 
-  // A detail goes to the clipboard through wl-copy's stdin, never on its
-  // command line: an address or a note is the person's own.
-  Process {
-    id: textCopier
-    property string text: ""
-    command: ["wl-copy"]
-    stdinEnabled: true
-    onStarted: { write(text); text = ""; stdinEnabled = false }
-    onExited: { stdinEnabled = true; view.reported("Copied") }
-  }
+  // Through Clipboard: an address or a note is the person's own, so it goes
+  // over stdin, never on a command line.
   function copyText(t) {
-    if (textCopier.running) return
-    textCopier.text = String(t)
-    textCopier.running = true
+    Clipboard.copyText(t, function() { view.reported("Copied") })
   }
 
   // ---- the shapes and the reveals ----
@@ -312,7 +305,7 @@ Item {
             glyph: Model.GLYPH.refresh
             waiting: !!view.contacts && view.contacts.reading
             motion: view.motion
-            tooltipText: waiting ? "Reading its contacts" : "Read its contacts again (r)"
+            tooltipText: waiting ? "Reading its contacts" : Model.keyTip("Read its contacts again", "refresh")
             foreground: view.foreground
             fontFamily: view.fontFamily
             enabled: !!view.contacts
@@ -337,10 +330,10 @@ Item {
         // all, so this points at that, never at a fault here.
         Text {
           Layout.fillWidth: true
-          visible: !!view.contacts && view.contacts.ready && !!view.rows && view.rows.count === 0
+          visible: !!view.contacts && view.contacts.ready && !!view.rows && view.rows.count === 0 && text !== ""
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
-          text: view.contacts ? Model.contactsEmpty(view.contacts.listState, view.contacts.query, view.device) : ""
+          text: view.contacts ? Model.contactsEmpty(view.contacts.listState, view.contacts.query, view.device, { noted: view.noted, granted: view.granted }) : ""
           color: view.dim
           font.family: view.fontFamily
           font.pixelSize: Style.font.bodySmall

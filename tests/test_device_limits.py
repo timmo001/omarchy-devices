@@ -5,11 +5,13 @@ cache is private. All data is made up (`python3 -m unittest discover -s tests`).
 
 import importlib.machinery
 import importlib.util
+import json
 import os
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -85,8 +87,19 @@ class ScreenLog(unittest.TestCase):
         self.assertEqual(bridge.screen_log("Pixel 8 · Screen"), "")
         self.assertEqual(bridge.runtime_dir(), "")
         self.assertEqual(bridge.turn_still({}, "Pixel 8 · Screen", "old"), "")
-        self.assertEqual(bridge.screen_command("S1", "x")[2], "scrcpy", "no log: plain scrcpy, not verbose")
-        self.assertNotIn("--verbosity=verbose", bridge.screen_command("S1", "x"))
+        with self.assertRaises(OSError, msg="no private place for adb: scrcpy is not started on the TCP port"):
+            bridge.screen_command("S1", "x")
+
+    def test_a_windows_stills_are_cleared_and_only_its_own(self):
+        title, other = "Pixel 8 · Screen", "Pixel 8 · Gmail"
+        folder = bridge.runtime_dir()
+        mine = bridge.hashlib.sha1(title.encode()).hexdigest()[:8]
+        theirs = bridge.hashlib.sha1(other.encode()).hexdigest()[:8]
+        made = [os.path.join(folder, "turn-%s-%s-1.ppm" % (h, w)) for h in (mine, theirs) for w in ("old", "new")]
+        for path in made:
+            open(path, "wb").write(b"P6")
+        bridge.clear_stills(title)
+        self.assertEqual([os.path.exists(p) for p in made], [False, False, True, True])
 
     def test_old_logs_in_the_cache_are_removed(self):
         os.makedirs(os.path.join(os.environ["XDG_CACHE_HOME"], "sceny.devices"))
@@ -95,6 +108,10 @@ class ScreenLog(unittest.TestCase):
         bridge._state_dirs_closed.clear()
         bridge.state_dir()
         self.assertFalse(os.path.exists(old))
+
+
+def mock_missing(path):
+    raise FileNotFoundError(path)
 
 
 class CacheFolder(unittest.TestCase):
@@ -116,6 +133,32 @@ class CacheFolder(unittest.TestCase):
                     del os.environ["XDG_CACHE_HOME"]
                 else:
                     os.environ["XDG_CACHE_HOME"] = saved
+
+    def test_the_messages_folder_never_exists_before_its_parent_is_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = os.environ.get("XDG_CACHE_HOME")
+            os.environ["XDG_CACHE_HOME"] = tmp
+            try:
+                bridge._state_dirs_closed.clear()
+                path = bridge.cache_dir()
+                self.assertEqual(path, os.path.join(tmp, "sceny.devices", "sms"))
+                self.assertEqual(stat.S_IMODE(os.stat(os.path.dirname(path)).st_mode), 0o700)
+            finally:
+                if saved is None:
+                    del os.environ["XDG_CACHE_HOME"]
+                else:
+                    os.environ["XDG_CACHE_HOME"] = saved
+
+    def test_omarchys_folder_from_the_environment_needs_root_and_no_other_writer(self):
+        default = "/usr/share/omarchy/bin"
+        stat_of = lambda uid, mode: (lambda path: os.stat_result((mode, 0, 0, 1, uid, 0, 0, 0, 0, 0)))
+        env = {"OMARCHY_PATH": "/opt/omarchy"}
+        self.assertEqual(bridge.omarchy_bin({}), default)
+        self.assertEqual(bridge.omarchy_bin(env, stat_of(0, 0o40755)), "/opt/omarchy/bin")
+        self.assertEqual(bridge.omarchy_bin(env, stat_of(1000, 0o40755)), default, "owned by a user")
+        self.assertEqual(bridge.omarchy_bin(env, stat_of(0, 0o40775)), default, "writable by a group")
+        self.assertEqual(bridge.omarchy_bin(env, stat_of(0, 0o40757)), default, "writable by all")
+        self.assertEqual(bridge.omarchy_bin(env, mock_missing), default)
 
     def test_a_runtime_folder_of_someone_else_is_not_used(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -242,6 +285,88 @@ class DeviceTextCaps(unittest.TestCase):
                     del os.environ["HOME"]
                 else:
                     os.environ["HOME"] = saved
+
+    def with_cards(self, files):
+        """contacts_list over made-up card files: {name: text}."""
+        with tempfile.TemporaryDirectory() as home:
+            saved = {k: os.environ.get(k) for k in ("HOME", "XDG_CACHE_HOME")}
+            os.environ["HOME"] = home
+            os.environ["XDG_CACHE_HOME"] = os.path.join(home, ".cache")
+            folder = os.path.join(home, ".local/share/kpeoplevcard/kdeconnect-dev1")
+            os.makedirs(folder)
+            try:
+                for name, text in files.items():
+                    with open(os.path.join(folder, name), "w") as f:
+                        f.write(text)
+                return folder, bridge.contacts_list("dev1")
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+
+    def test_every_card_field_is_cut_and_the_output_is_bounded(self):
+        big = "x" * (900 << 10)
+        card = ("BEGIN:VCARD\nFN:Sam Chen\nNICKNAME:%s\nORG:%s\nTITLE:%s\nBDAY:%s\nNOTE:%s\nTEL:5550100\nEND:VCARD\n"
+                % (big, big, big, big, big))
+        _folder, out = self.with_cards({"c%d.vcf" % i: card for i in range(5)})
+        size = len(json.dumps(out, ensure_ascii=False))
+        self.assertLess(size, 5 * 12000, "five cards of 900 KB fields: a bounded output")
+        c = out["contacts"][0]
+        for key in ("nickname", "org", "title", "birthday"):
+            self.assertLessEqual(len(c[key]), bridge.CAP_SHORT, key)
+        self.assertLessEqual(len(c["note"]), bridge.CAP_TEXT)
+
+    def test_the_contacts_of_one_read_have_a_total_budget(self):
+        note = "n" * bridge.CAP_TEXT
+        files = {"c%05d.vcf" % i: "BEGIN:VCARD\nFN:Name %d\nNOTE:%s\nTEL:5550100\nEND:VCARD\n" % (i, note) for i in range(3500)}
+        _folder, out = self.with_cards(files)
+        self.assertLess(len(out["contacts"]), 3500)
+        self.assertLessEqual(len(json.dumps(out, ensure_ascii=False).encode("utf-8")),
+                             bridge.CAP_CONTACTS_OUT + 2 * bridge.CAP_TEXT)
+
+    def test_quoted_printable_soft_breaks_are_joined_in_linear_time(self):
+        qp = "=\n".join(["=C3=A1" * 20] * 20000)
+        start = time.monotonic()
+        card = bridge.parse_vcard("BEGIN:VCARD\nFN:Sam\nNOTE;ENCODING=QUOTED-PRINTABLE:%s\nEND:VCARD\n" % qp)
+        self.assertLess(time.monotonic() - start, 1.5)
+        self.assertTrue(card["note"].startswith("áááá"))
+        self.assertLessEqual(len(card["note"]), bridge.CAP_TEXT)
+
+    def test_a_link_or_a_pipe_in_the_folder_is_not_a_card(self):
+        with tempfile.TemporaryDirectory() as home:
+            saved = os.environ.get("HOME")
+            os.environ["HOME"] = home
+            folder = os.path.join(home, ".local/share/kpeoplevcard/kdeconnect-dev1")
+            os.makedirs(folder)
+            try:
+                with open(os.path.join(home, "outside.vcf"), "w") as f:
+                    f.write("BEGIN:VCARD\nFN:Linked\nTEL:5550100\nEND:VCARD\n")
+                os.symlink(os.path.join(home, "outside.vcf"), os.path.join(folder, "a.vcf"))
+                os.mkfifo(os.path.join(folder, "b.vcf"))
+                with open(os.path.join(folder, "c.vcf"), "w") as f:
+                    f.write("BEGIN:VCARD\nFN:Real\nTEL:5550101\nEND:VCARD\n")
+                self.assertEqual([c["name"] for _i, c in bridge.read_vcards("dev1")], ["Real"])
+            finally:
+                if saved is None:
+                    del os.environ["HOME"]
+                else:
+                    os.environ["HOME"] = saved
+
+    def test_a_call_and_a_bluetooth_phone_are_cut(self):
+        long = "z" * 100000
+        event = bridge.call_event("callReceived", long, long + "a", 1)
+        self.assertLessEqual(len(event["number"]), bridge.CAP_SHORT)
+        self.assertLessEqual(len(event["name"]), bridge.CAP_SHORT)
+        objects = {"/org/bluez/hci0/dev_0": {"org.bluez.Device1": {
+            "Address": "00:11:22:33:44:55", "Alias": long, "Paired": True, "Connected": True, "UUIDs": [bridge.UUID_GATEWAY], "Icon": "phone"}}}
+        self.assertLessEqual(len(bridge.parse_bluez(objects)["phones"][0]["name"]), bridge.CAP_SHORT)
+        gw = bridge.parse_gateway("/org/pipewire/Telephony/ag0", {bridge.TEL_AG: {"Address": "00:11:22:33:44:55"}},
+                                  {"/org/pipewire/Telephony/ag0/call0": {bridge.TEL_CALL: {
+                                      "State": "active", "LineIdentification": long, "Name": long}}})
+        self.assertLessEqual(len(gw["calls"][0]["number"]), bridge.CAP_SHORT)
+        self.assertLessEqual(len(gw["calls"][0]["name"]), bridge.CAP_SHORT)
 
     def test_too_many_threads_are_cut_to_the_newest(self):
         sms = bridge.Sms.__new__(bridge.Sms)

@@ -16,6 +16,11 @@ Item {
   id: view
 
   property var sms: null
+  // The note for contacts when the plugin can allow them itself (Model.
+  // sectionNote's ask), else null; contactsWorking: its Allow is running.
+  property var contactsAsk: null
+  property bool contactsWorking: false
+  signal allowContacts()
   property var bar: null
   property color foreground: Color.foreground
   property color urgent: Color.urgent
@@ -233,19 +238,9 @@ Item {
     if (String(m.body || "") !== "") { copyText(m.body); return }
     if (files.length > 0) view.sms.fetchAttachment(files[0].part, files[0].id, files[0].mime)
   }
-  // The text goes to wl-copy over stdin, never on its command line.
-  Process {
-    id: textCopier
-    property string text: ""
-    command: ["wl-copy"]
-    stdinEnabled: true
-    onStarted: { write(text); text = ""; stdinEnabled = false }
-    onExited: { stdinEnabled = true; view.reported("Copied") }
-  }
+  // Through Clipboard: the text goes over stdin, never on a command line.
   function copyText(t) {
-    if (textCopier.running) return
-    textCopier.text = String(t)
-    textCopier.running = true
+    Clipboard.copyText(t, function() { view.reported("Copied") })
   }
 
   function cursorTo(i) {
@@ -285,17 +280,16 @@ Item {
     cursorTo((cursorActive ? threadCursor : 0) - pages * rows)
   }
 
-  // Where the pointer last was on screen, so a row that slides under a still
-  // pointer (the keys scrolled the list) is told apart from the pointer
-  // moving onto it.
-  property point lastPointer: Qt.point(-1, -1)
+  // Whether the pointer moved to where this area hears it (the panel's
+  // PointerGate): a row that slides under a still pointer (the keys scrolled
+  // the list, suggestions appeared) does not take the cursor, whatever the
+  // pointer touched last.
+  property var hoverMovedTo: function(p) { return true }
+  function pointerMoved(area) { return hoverMovedTo(area.mapToItem(null, area.mouseX, area.mouseY)) }
   // The cursor last moved by the pointer: the highlight lands at once.
   property bool cursorByPointer: false
   function pointerAt(area, index) {
-    var g = area.mapToGlobal(area.mouseX, area.mouseY)
-    var moved = Math.abs(g.x - lastPointer.x) > 0.5 || Math.abs(g.y - lastPointer.y) > 0.5
-    lastPointer = Qt.point(g.x, g.y)
-    if (!moved) return
+    if (!pointerMoved(area)) return
     cursorByPointer = true
     cursorActive = true
     threadCursor = index
@@ -467,7 +461,7 @@ Item {
           Button {
             visible: !!view.sms && (view.sms.unreadCount > 0 || view.sms.unreadOnly)
             text: (view.sms ? view.sms.unreadCount : 0) + " unread"
-            tooltipText: view.sms && view.sms.unreadOnly ? "Show all conversations (u)" : "Show unread only (u)"
+            tooltipText: Model.keyTip(view.sms && view.sms.unreadOnly ? "Show all conversations" : "Show unread only", "unread")
             selected: !!view.sms && view.sms.unreadOnly
             bordered: true
             foreground: view.foreground
@@ -479,7 +473,7 @@ Item {
           }
           PanelActionButton {
             iconText: Model.GLYPH.newMessage
-            tooltipText: "New message (n)"
+            tooltipText: Model.keyTip("New message", "newMessage")
             foreground: view.foreground
             fontFamily: view.fontFamily
             enabled: !!view.sms && view.sms.reachable
@@ -752,13 +746,46 @@ Item {
 
           Text {
             Layout.fillWidth: true
-            visible: !!view.sms && view.sms.contactCount === 0
+            visible: !!view.sms && view.sms.contactCount === 0 && !view.contactsAsk
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
             text: "Contact names are not synced from the device yet, so search matches numbers. Allow contacts in its KDE Connect app to search by name."
             color: view.dim
             font.family: view.fontFamily
             font.pixelSize: Style.font.caption
+          }
+
+          // The plugin can allow contacts itself (read over adb): the same
+          // Allow as the Contacts page, or the step left on the device.
+          RowLayout {
+            Layout.fillWidth: true
+            visible: !!view.sms && view.sms.contactCount === 0 && !!view.contactsAsk
+            spacing: Style.space(6)
+            Text {
+              Layout.fillWidth: true
+              textFormat: Text.PlainText
+              wrapMode: Text.WordWrap
+              text: "Search matches numbers until contacts are allowed."
+              color: view.dim
+              font.family: view.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+            Button {
+              visible: !!view.contactsAsk && view.contactsAsk.waiting !== true
+              text: view.contactsWorking ? "Working…" : "Allow"
+              enabled: !view.contactsWorking
+              bordered: true
+              foreground: view.foreground
+              fontFamily: view.fontFamily
+              fontSize: Style.font.caption
+              onClicked: view.allowContacts()
+            }
+            WaitRing {
+              visible: !!view.contactsAsk && view.contactsAsk.waiting === true
+              running: visible
+              color: view.dim
+              size: Math.round(Style.font.caption * 0.9)
+            }
           }
         }
 
@@ -783,7 +810,8 @@ Item {
               anchors.fill: parent
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
-              onEntered: view.suggestionCursor = suggestion.index
+              onEntered: if (view.pointerMoved(this)) view.suggestionCursor = suggestion.index
+              onPositionChanged: if (view.pointerMoved(this)) view.suggestionCursor = suggestion.index
               // The user's own click: on to writing the message.
               onClicked: {
                 view.addRecipient(suggestion.modelData)
@@ -1308,21 +1336,41 @@ Item {
             }
           }
 
-          TextEdit {
+          // Lights the message a moment once it is copied.
+          Rectangle {
+            x: bodyText.x
+            y: bodyText.y
+            width: bodyText.width
+            height: bodyText.height
+            visible: bodyText.visible
+            color: Style.selectionFillFor(view.foreground, Color.accent)
+            opacity: copied.running ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * view.motion; easing.type: Easing.OutCubic } }
+          }
+
+          // A Text, not a TextEdit: Qt's Text has no selection, no copy and
+          // no keys, so nothing done to it makes the shell own a selection.
+          // A double click copies the whole message through Clipboard.
+          Text {
             id: bodyText
             visible: bubble.body !== ""
             x: bubble.padX
             y: bubble.padY + (fileColumn.visible ? fileColumn.height + Style.space(6) : 0)
             width: Math.min(implicitWidth, bubble.maxWidth - bubble.padX * 2)
-            readOnly: true
-            selectByMouse: true
-            textFormat: TextEdit.PlainText
-            wrapMode: TextEdit.Wrap
+            textFormat: Text.PlainText
+            wrapMode: Text.Wrap
             text: bubble.body
             color: view.foreground
-            selectionColor: Style.selectionFillFor(view.foreground, Color.accent)
             font.family: view.fontFamily
             font.pixelSize: Style.font.body
+
+            Timer { id: copied; interval: 900 }
+            TapHandler {
+              onDoubleTapped: {
+                view.copyText(bodyText.text)
+                copied.restart()
+              }
+            }
           }
         }
       }
