@@ -4833,13 +4833,15 @@ Panel {
                 animate: root.settled
                 Rectangle {
                   width: pageColumn.width
-                  implicitHeight: cardContent.implicitHeight + Style.space(14)
+                  implicitHeight: problemCardContent.implicitHeight + Style.space(14)
                   radius: Style.cornerRadius
                   color: Qt.alpha(root.urgent, 0.06)
                   border.width: 1
                   border.color: Qt.alpha(root.urgent, 0.55)
+                  // Not `cardContent`: MediaCard has that id, and the clash
+                  // sends Qt 6.12's qmllint into an endless loop.
                   ProblemBody {
-                    id: cardContent
+                    id: problemCardContent
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
